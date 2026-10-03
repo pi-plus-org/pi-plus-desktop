@@ -14,7 +14,11 @@ export interface TabDescriptor {
 	tabId: string;
 	cwd: string;
 	profileName: string | null;
+	permissionMode: PermissionMode;
 }
+
+/** Tool-call permission mode, mirroring the SDK's pi-plus-permissions modes. */
+export type PermissionMode = "bypass" | "acceptEdits" | "plan";
 
 /** Content blocks with image payloads replaced by placeholders. */
 export type ContentBlockDTO =
@@ -63,6 +67,8 @@ export interface SessionMetaDTO {
 	availableThinkingLevels: string[];
 	/** True once the transcript exists on disk — gates clone/fork. */
 	persisted: boolean;
+	/** Tool-call permission mode of the tab (drives the composer dropdown). */
+	permissionMode: PermissionMode;
 }
 
 export interface EnsureResult {
@@ -280,6 +286,8 @@ export interface AppSettingsDTO {
 	editor: string;
 	/** History panel width in px (drag-resizable; see renderer Sidebar). */
 	sidebarWidth: number;
+	/** Permission mode new tabs start with (Settings → Permissions). */
+	defaultPermissionMode: PermissionMode;
 }
 
 /**
@@ -339,6 +347,7 @@ export const IPC = {
 		listSkills: "session:listSkills",
 		listModels: "session:listModels",
 		listCommands: "session:listCommands",
+		setPermissionMode: "session:setPermissionMode",
 		listProfiles: "profiles:list",
 		createProfile: "profiles:create",
 		updateProfile: "profiles:update",
@@ -357,6 +366,7 @@ export const IPC = {
 		setEditor: "settings:setEditor",
 		listEditors: "settings:listEditors",
 		setSidebarWidth: "settings:setSidebarWidth",
+		setDefaultPermissionMode: "settings:setDefaultPermissionMode",
 		openInEditor: "editor:open",
 		getCompaction: "settings:getCompaction",
 		setCompaction: "settings:setCompaction",
@@ -392,7 +402,9 @@ export interface PiApi {
 	prompt(tabId: string, text: string, attachments?: string[], mode?: "steer" | "followUp"): Promise<void>;
 	abort(tabId: string): Promise<void>;
 	closeTab(tabId: string): Promise<void>;
-	setTabProfile(tabId: string, profileName: string | null): Promise<void>;
+	/** Switch the tab's profile: disposes the runtime and starts a fresh session
+	 *  under the new profile's agent dir; returns that session's snapshot. */
+	setTabProfile(tabId: string, profileName: string | null): Promise<EnsureResult>;
 	listSessions(): Promise<SessionListItemDTO[]>;
 	/** SDK SessionManager.search: name + message text, case-insensitive, newest first. */
 	searchSessions(query: string): Promise<SessionListItemDTO[]>;
@@ -423,6 +435,8 @@ export interface PiApi {
 	listCommands(tabId: string): Promise<CommandDTO[]>;
 	/** Models available to the tab's session (needs ensureSession first). */
 	listModels(tabId: string): Promise<ModelRefDTO[]>;
+	/** Switch the tab's tool-permission mode; resolves to the applied mode. */
+	setPermissionMode(tabId: string, mode: PermissionMode): Promise<PermissionMode>;
 	listProfiles(): Promise<ProfilesDataDTO>;
 	createProfile(name: string, profile: ProfileDTO): Promise<void>;
 	updateProfile(name: string, profile: ProfileDTO): Promise<void>;
@@ -456,6 +470,8 @@ export interface PiApi {
 	listEditors(): Promise<EditorOptionDTO[]>;
 	/** Persist the drag-resized history panel width. */
 	setSidebarWidth(width: number): Promise<void>;
+	/** Permission mode new tabs start with (Settings → Permissions). */
+	setDefaultPermissionMode(mode: PermissionMode): Promise<void>;
 	/**
 	 * Open `text` in the configured editor via a temp file and wait for the
 	 * process to exit; resolves to the edited content (undefined when the file

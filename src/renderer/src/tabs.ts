@@ -35,7 +35,7 @@ export class TabsBar {
 			const tab = store.tabs.get(tabId);
 			if (tab) this.root.append(this.renderTab(tab));
 		}
-		// Trailing "+": File > New Chat (⌘N, ⌘T alias) as a visible affordance.
+		// Trailing "+": File > New Chat (⌘N) as a visible affordance.
 		const add = el("button", "tab-add", "+");
 		add.title = "New chat (⌘N)";
 		add.addEventListener("click", () => window.dispatchEvent(new CustomEvent("pi:new-tab")));

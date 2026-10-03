@@ -14,11 +14,12 @@ import { randomUUID } from "node:crypto";
 import { resolve as resolvePath } from "node:path";
 import type { WebContents } from "electron";
 import "./sdk-shim.ts";
-import type { AgentSession, AgentSessionEvent, AgentSessionRuntime, SessionInfo, SettingsManager } from "pi-plus-sdk";
+import type { AgentSession, AgentSessionEvent, AgentSessionRuntime, PermissionModeState, SessionInfo, SettingsManager, SlashCommandInfo } from "pi-plus-sdk";
 import { composePromptText } from "../shared/attachments.ts";
 import {
 	IPC,
 	type CommandDTO,
+	type PermissionMode,
 	type CompactResultDTO,
 	type CompactionPatch,
 	type CompactionSettingsDTO,
@@ -40,8 +41,8 @@ import { sanitizeEvent, sanitizeSnapshot } from "./session-sanitize.ts";
 // of externals would be hoisted above the shim by the bundler.
 const sdk = await import("pi-plus-sdk");
 const {
+	createPermissionsExtension,
 	createPlusAgentSessionRuntime,
-	SessionManager,
 	getAutoCompactThresholdPercent,
 	setAutoCompactThresholdPercent,
 	getContextFloorTokens,
@@ -49,6 +50,19 @@ const {
 	getContextWindowCapTokens,
 	setContextWindowCapTokens,
 } = sdk;
+
+// The published pi-plus-sdk runtime (api.js bundles the newer coding-agent
+// sources) has these members, but its type surface re-exports the published
+// @earendil-works/pi-coding-agent d.ts, which lags behind. Declaring the
+// shape locally keeps both the registry install and a linked ../pi build
+// typecheck-clean; the members are guaranteed present at runtime either way.
+// Remove this once the published coding-agent types carry them.
+type SessionManagerSurface = (typeof sdk)["SessionManager"] & {
+	search(query: string): Promise<SessionInfo[]>;
+	deleteSession(filePath: string): boolean;
+};
+const SessionManager = sdk.SessionManager as SessionManagerSurface;
+type PlusAgentSession = AgentSession & { getSlashCommands(): SlashCommandInfo[] };
 
 interface TabHandle {
 	tabId: string;
@@ -62,6 +76,9 @@ interface TabHandle {
 	lastStreaming: boolean;
 	/** Last meta pushed, so refreshMeta() can skip unchanged payloads. */
 	lastMetaJson: string;
+	/** Tool-permission mode holder shared with the pi-plus-permissions
+	 *  extension (the live truth for the gate; survives session replacement). */
+	permission: PermissionModeState;
 }
 
 const FORK_PREVIEW_LIMIT = 160;
@@ -91,6 +108,8 @@ export class SessionHost {
 		private getWebContents: (tabId: string) => WebContents | undefined,
 		private dialogs: DialogBridge,
 		private profiles: ProfileStore,
+		/** App-level default for new tabs (Settings → Permissions). */
+		private defaultPermissionMode: () => PermissionMode = () => "bypass",
 	) {}
 
 	createTab(opts: { cwd?: string; profileName?: string | null }): TabDescriptor {
@@ -98,6 +117,7 @@ export class SessionHost {
 		const cwd = opts.cwd ?? process.cwd();
 		const { agentDir, error } = this.profiles.resolveAgentDir(profileName);
 		const tabId = randomUUID();
+		const permission: PermissionModeState = { mode: this.defaultPermissionMode() };
 		this.tabs.set(tabId, {
 			tabId,
 			cwd,
@@ -108,8 +128,9 @@ export class SessionHost {
 			unsubscribe: null,
 			lastStreaming: false,
 			lastMetaJson: "",
+			permission,
 		});
-		return { tabId, cwd, profileName };
+		return { tabId, cwd, profileName, permissionMode: permission.mode };
 	}
 
 	private getTab(tabId: string): TabHandle {
@@ -123,11 +144,12 @@ export class SessionHost {
 		return this.getTab(tabId).cwd;
 	}
 
-	/** Live session of a tab; throws when the runtime is missing. */
-	private sessionOf(tab: TabHandle): AgentSession {
+	/** Live session of a tab; throws when the runtime is missing. A plus
+	 *  runtime's session always carries the surface additions (see above). */
+	private sessionOf(tab: TabHandle): PlusAgentSession {
 		const session = tab.runtime?.session;
 		if (!session) throw new Error("Session not initialized.");
-		return session;
+		return session as PlusAgentSession;
 	}
 
 	/**
@@ -153,6 +175,14 @@ export class SessionHost {
 				// The subagent tool spawns a `pi` subprocess; in this Electron host that
 				// can relaunch the app binary, so it stays disabled.
 				excludeTools: ["subagent"],
+				// Permission gate: reads (and the /permissions command writes) the
+				// tab's live mode holder; host-side switches push meta back.
+				extensionFactories: [
+					createPermissionsExtension({
+						state: tab.permission,
+						onModeChange: () => this.refreshMeta(tab),
+					}),
+				],
 				ui: this.dialogs.handlersFor(tabId),
 				onError: (error) => {
 					this.push(tabId, { type: "extension_error", message: error.error });
@@ -201,6 +231,7 @@ export class SessionHost {
 			contextUsage: usage ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent } : null,
 			availableThinkingLevels: session.getAvailableThinkingLevels() as string[],
 			persisted: !!session.sessionFile,
+			permissionMode: tab.permission.mode,
 		};
 	}
 
@@ -446,6 +477,20 @@ export class SessionHost {
 		return session.getAvailableThinkingLevels() as string[];
 	}
 
+	/**
+	 * Switch the tab's tool-permission mode. The pi-plus-permissions extension
+	 * shares this holder, so no runtime is required; the meta refresh is a
+	 * no-op until the session exists (the EnsureResult carries the mode).
+	 */
+	setPermissionMode(tabId: string, mode: PermissionMode): PermissionMode {
+		const tab = this.getTab(tabId);
+		if (tab.permission.mode !== mode) {
+			tab.permission.mode = mode;
+			this.refreshMeta(tab);
+		}
+		return tab.permission.mode;
+	}
+
 	/** Tear down a tab's runtime; safe against double-close / double-dispose. */
 	private async destroyTab(tab: TabHandle): Promise<void> {
 		tab.unsubscribe?.();
@@ -470,11 +515,14 @@ export class SessionHost {
 	}
 
 	/**
-	 * Switch the tab to a different profile. The runtime is disposed so
-	 * the next prompt starts a fresh session under the new agent dir; prior
-	 * sessions stay reachable through the history sidebar.
+	 * Switch the tab to a different profile. The runtime is disposed and a
+	 * fresh session starts under the new agent dir right away (like the
+	 * other session-replacing capabilities: returns the full snapshot), so
+	 * the status line shows that profile's default model instead of keeping
+	 * the disposed session's. Prior sessions stay reachable through the
+	 * history sidebar.
 	 */
-	async setProfile(tabId: string, profileName: string | null): Promise<void> {
+	async setProfile(tabId: string, profileName: string | null): Promise<EnsureResult> {
 		const tab = this.getTab(tabId);
 		await this.destroyTab(tab);
 		const { agentDir, error } = this.profiles.resolveAgentDir(profileName);
@@ -488,6 +536,7 @@ export class SessionHost {
 			lastStreaming: false,
 			lastMetaJson: "",
 		});
+		return this.ensureSession(tabId);
 	}
 
 	async listSessions(): Promise<SessionListItemDTO[]> {

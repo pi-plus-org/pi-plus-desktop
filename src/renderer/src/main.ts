@@ -208,10 +208,20 @@ function init(): void {
 	sidebarRef = sidebar;
 	const tabsBar = new TabsBar($("#tabbar"), (tab, profileName) => {
 		void (async () => {
-			await window.pi.setTabProfile(tab.tabId, profileName);
-			tab.profileName = profileName;
-			tabsBar.render();
-			dialogs.notify(`Tab switched to profile '${profileName}'. The next message starts a new session under it.`, "info");
+			// A profile switch is a session-replacing capability: the returned
+			// snapshot carries the new profile's default model, so the status
+			// line chip shows it right away instead of keeping the disposed
+			// session's.
+			try {
+				const result = await window.pi.setTabProfile(tab.tabId, profileName);
+				tab.profileName = profileName; // before the "tabs" render inside
+				applyCapability(tab.tabId, result, "Profile switch");
+				dialogs.notify(`Tab switched to profile '${profileName}'.`, "info");
+			} catch (err) {
+				tab.profileName = profileName; // main-side switch already landed
+				tabsBar.render();
+				dialogs.notify(`Switch to profile '${profileName}' failed: ${String((err as Error).message ?? err)}`, "error");
+			}
 		})();
 	});
 	const chatView = new ChatView($("#chat"));
@@ -320,7 +330,7 @@ function init(): void {
 	window.addEventListener("focus", () => void sidebar.refresh());
 
 	// Launches start blank: no tabs, no dialogs. Chats begin from the
-	// new-chat form or File > New Tab (Cmd+T), which is where the folder
+	// new-chat form or File > New Chat (Cmd+N), which is where the folder
 	// picker lives.
 	void window.pi.listProfiles().then((data) => tabsBar.setProfiles(data));
 	void sidebar.refresh();

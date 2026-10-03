@@ -12,18 +12,30 @@
  * A single status strip above the box merges the session capabilities
  * (model and thinking pickers, skills popover, manual compact/abort) with
  * the live state: steer/queue status, the last exchange's token usage and
- * cost, and the context gauge. The chatbox + strip are per-tab: drafts and
- * attachments are parked on the TabState and restored on tab switch.
+ * cost, and the context gauge. The permission-mode dropdown (bypass / accept
+ * edits / plan mode; Shift+Tab cycles forward) sits in the box's bottom strip.
+ * The chatbox + strip are per-tab: drafts and attachments are parked on
+ * the TabState and restored on tab switch.
  */
 
 import { isImagePath } from "../../shared/attachments.ts";
-import type { ChatMessageDTO, CommandDTO, DirEntryDTO, ListDirResultDTO, SkillDTO } from "../../shared/ipc-types.ts";
+import type { ChatMessageDTO, CommandDTO, DirEntryDTO, ListDirResultDTO, PermissionMode, SkillDTO } from "../../shared/ipc-types.ts";
 import type { Dialogs } from "./dialogs.ts";
 import { thumbSrc } from "./image-thumb.ts";
 import { formatTokens, store, type TabState } from "./store.ts";
 
 /** How far back from the caret to look for the "@" trigger. */
 const MAX_AT_TOKEN = 256;
+
+/** Shift+Tab cycles forward through this order (the SDK's canonical order). */
+const PERMISSION_ORDER: PermissionMode[] = ["bypass", "acceptEdits", "plan"];
+const PERMISSION_UI: Record<PermissionMode, { chip: string; hint: string }> = {
+	// Plain text glyphs — ⚡ and ⏸ would render as fixed-color emoji and
+	// ignore the chip's CSS tint.
+	bypass: { chip: "» bypass", hint: "every tool runs without asking" },
+	acceptEdits: { chip: "✓ accept edits", hint: "file edits run freely; shell and other tools ask first" },
+	plan: { chip: "∥ plan mode", hint: "read-only research; changes are blocked" },
+};
 
 function basename(path: string): string {
 	const parts = path.split(/[/\\]/);
@@ -140,6 +152,8 @@ export class Composer {
 	private queueChip!: HTMLButtonElement;
 	private queueClearBtn!: HTMLButtonElement;
 	private usageChip!: HTMLElement;
+	// permission-mode chip in the chat box's bottom strip (constructor)
+	private permissionBtn!: HTMLButtonElement;
 	private sendMode: "steer" | "followUp" = "followUp";
 	private skillsPopover: HTMLElement | null = null;
 	private closeSkillsPopover: (() => void) | null = null;
@@ -228,17 +242,28 @@ export class Composer {
 			}
 		});
 
+		// Permission-mode dropdown in the bottom strip, left of ✎; Shift+Tab cycles forward.
+		this.permissionBtn = document.createElement("button");
+		this.permissionBtn.className = "permission-btn";
+		this.permissionBtn.addEventListener("click", () => this.openPermissionMenu(this.permissionBtn));
 		// One rounded chat box: textarea on top, button strip pinned to its
-		// bottom (clip / ⋯ / ✎ left, send right) — pi-hub composer style.
+		// bottom (clip / ⋯ / permission / ✎ left, send right) — pi-hub composer style.
 		const controls = document.createElement("div");
 		controls.className = "composer-controls";
-		controls.append(this.attachButton, this.sessionMenuBtn, this.editorBtn, this.button);
+		controls.append(this.attachButton, this.sessionMenuBtn, this.permissionBtn, this.editorBtn, this.button);
 		const box = document.createElement("div");
 		box.className = "composer-box";
 		box.append(this.textarea, controls);
 		this.toolbar = this.buildToolbar();
 		this.toolbar.hidden = true;
 		root.append(this.attachmentsRow, this.atMenu, this.slashMenu, this.toolbar, box);
+		window.addEventListener("keydown", (e) => {
+			if (e.key !== "Tab" || !e.shiftKey || e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
+			// Reverse-tab stays functional inside the extension dialogs' modals.
+			if (document.querySelector(".dialog-overlay") || !store.active) return;
+			e.preventDefault();
+			this.cyclePermissionMode();
+		});
 	}
 
 	// ------------------------------------------------------------------
@@ -347,6 +372,56 @@ export class Composer {
 			}
 		};
 		document.addEventListener("mousedown", dismiss);
+	}
+
+	/** Permission-mode menu, anchored upward like the session menu. */
+	private openPermissionMenu(anchor: HTMLElement): void {
+		document.querySelector(".profile-menu")?.remove();
+		const tab = store.active;
+		if (!tab) return;
+		const menu = document.createElement("div");
+		menu.className = "profile-menu";
+		for (const mode of PERMISSION_ORDER) {
+			const ui = PERMISSION_UI[mode];
+			const row = document.createElement("div");
+			row.className = "profile-menu-item";
+			row.textContent = ui.chip;
+			row.title = `${ui.hint} (Switch: Shift+Tab; in chat: /permissions ${mode === "acceptEdits" ? "accept-edits" : mode})`;
+			if (mode === tab.permissionMode) row.classList.add("profile-menu-checked");
+			row.addEventListener("click", () => {
+				menu.remove();
+				this.applyPermissionMode(mode);
+			});
+			menu.append(row);
+		}
+		const rect = anchor.getBoundingClientRect();
+		menu.style.left = `${Math.min(rect.left, window.innerWidth - 280)}px`;
+		menu.style.bottom = `${window.innerHeight - rect.top + 4}px`;
+		document.body.append(menu);
+		const dismiss = (e: MouseEvent) => {
+			if (!menu.contains(e.target as Node)) {
+				menu.remove();
+				document.removeEventListener("mousedown", dismiss);
+			}
+		};
+		document.addEventListener("mousedown", dismiss);
+	}
+
+	private applyPermissionMode(mode: PermissionMode): void {
+		const tab = store.active;
+		if (!tab) return;
+		void window.pi
+			.setPermissionMode(tab.tabId, mode)
+			.then((applied) => store.applyPermissionMode(tab.tabId, applied))
+			.catch((err) => this.showError(err));
+	}
+
+	private cyclePermissionMode(): void {
+		const tab = store.active;
+		if (!tab) return;
+		const index = Math.max(0, PERMISSION_ORDER.indexOf(tab.permissionMode));
+		const next = PERMISSION_ORDER[(index + 1) % PERMISSION_ORDER.length];
+		if (next) this.applyPermissionMode(next);
 	}
 
 	private showError(err: unknown): void {
@@ -1012,6 +1087,15 @@ export class Composer {
 
 	private syncToolbar(active: TabState | undefined): void {
 		this.toolbar.hidden = !active;
+		// Permission chip in the bottom strip: the mode is tab state (set at
+		// create), so it shows from the first moment — no session required.
+		this.permissionBtn.hidden = !active;
+		const mode = active?.permissionMode ?? "bypass";
+		const permissionUi = PERMISSION_UI[mode];
+		this.permissionBtn.textContent = `${permissionUi.chip} ▾`;
+		this.permissionBtn.title = `${permissionUi.chip} — ${permissionUi.hint} (Shift+Tab cycles)`;
+		this.permissionBtn.classList.toggle("permission-acceptEdits", mode === "acceptEdits");
+		this.permissionBtn.classList.toggle("permission-plan", mode === "plan");
 		const model = active?.meta?.model;
 		this.modelBtn.textContent = `◈ ${model ? shortModel(model) : "Model"}`;
 		this.modelBtn.title = model ? `Model — ${model}` : "Pick the session model";

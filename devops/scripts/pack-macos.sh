@@ -10,11 +10,10 @@
 #   release/<AppName>-<version>.dmg   (drag-to-Applications installer; the
 #   .app bundle exists only in dist/pack/ staging and is removed afterwards)
 #
-# Distributable only: file: dependencies (e.g. a locally linked pi-plus-sdk)
-# install as symlinks pointing at dev-machine paths, which break on any other
-# machine — this script refuses to pack while they are in package.json. For a
-# local machine dev install with symlinks kept, use
-# .claude/scripts/deploy-pack.sh --dev.
+# Production pack: dependencies must carry registry specs. file: deps (a
+# locally linked pi-plus-sdk) install as symlinks pointing at dev-machine paths,
+# which break on any other machine — this script refuses to pack while they are
+# in package.json.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -34,10 +33,7 @@ echo "[pack] version $VERSION, app '$APP_NAME'"
 FILE_DEPS="$(node -p "const d=require('$ROOT/package.json').dependencies||{};Object.entries(d).filter(([,s])=>String(s).startsWith('file:')).map(([n])=>n).join(' ')")"
 if [ -n "$FILE_DEPS" ]; then
 	echo "[pack] refusing to pack: file: (symlinked) dependencies in package.json: $FILE_DEPS" >&2
-	echo "[pack] for a distributable DMG, restore registry specs first, e.g.:" >&2
-	echo "[pack]   npm install --save pi-plus-sdk@^0.1.2 && npm install" >&2
-	echo "[pack] for a local dev install that keeps the symlink alive, use:" >&2
-	echo "[pack]   .claude/scripts/deploy-pack.sh --dev" >&2
+	echo "[pack] production packs need registry specs, e.g.: npm install --save pi-plus-sdk@^0.1.4" >&2
 	exit 1
 fi
 
@@ -72,7 +68,7 @@ LINKS="$(find "$APP_RES/node_modules" -maxdepth 1 -type l ! -name .bin | head -5
 if [ -n "$LINKS" ]; then
 	echo "[pack] refusing to pack: symlinked packages in the app payload:" >&2
 	echo "$LINKS" | sed 's/^/[pack]   /' >&2
-	echo "[pack] use .claude/scripts/deploy-pack.sh --dev for a local symlinked install." >&2
+	echo "[pack] distributable packs need real copies in node_modules, not links." >&2
 	exit 1
 fi
 

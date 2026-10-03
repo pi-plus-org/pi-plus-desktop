@@ -142,5 +142,8 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
 
-# Packaged releases (devops/scripts/pack-macos.sh)
+# Packaged releases (devops/scripts/pack-macos.sh, pack-windows.sh)
 release/
+
+# Downloaded Electron win32 distribution cache (devops/scripts/pack-windows.sh)
+.pack-cache/

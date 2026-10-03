@@ -1,13 +1,13 @@
 /**
  * Renderer entry for the dedicated Settings window: a left category panel
- * (Profiles / Appearance / Compaction / Editors) switching the right pane. Profiles are shown as a
+ * (Profiles / Appearance / Permissions / Compaction / Editors) switching the right pane. Profiles are shown as a
  * card grid with Add / Edit / Delete / Set Default buttons; double-click a
  * card also opens the edit form. Loads over the same preload surface as the
  * main window (window.pi).
  */
 
 import "../styles.css";
-import type { CompactionPatch, CompactionSettingsDTO, ProfileDTO, ProfilesDataDTO, ThemeMode } from "../../shared/ipc-types.ts";
+import type { CompactionPatch, CompactionSettingsDTO, PermissionMode, ProfileDTO, ProfilesDataDTO, ThemeMode } from "../../shared/ipc-types.ts";
 import { ProfileForm } from "./profile-form.ts";
 
 function el(tag: string, className?: string, text?: string): HTMLElement {
@@ -236,6 +236,50 @@ function init(): void {
 		.catch((err) => console.warn("[settings] getSettings failed", err));
 	appearancePane.append(themeRow);
 
+	// ---- Permissions pane ----
+	// Default tool-permission mode for new tabs. The live per-tab switch lives
+	// in the chat box's bottom strip (dropdown / Shift+Tab / /permissions);
+	// this only seeds the mode each new tab starts with.
+	// Plain text glyphs (like ⋯, ✎, ◈ elsewhere) — ⚡ and ⏸ would
+	// render as fixed-color emoji and ignore the per-mode CSS tint.
+	const PERMISSION_CHOICES: { label: string; mode: PermissionMode; glyph: string; desc: string }[] = [
+		{ label: "Bypass", mode: "bypass", glyph: "»", desc: "Every tool runs without asking — pi's classic behavior." },
+		{ label: "Accept edits", mode: "acceptEdits", glyph: "✓", desc: "File edits run freely; shell commands and other tools ask first." },
+		{ label: "Plan mode", mode: "plan", glyph: "∥", desc: "Read-only research — edits and changing shell commands are blocked." },
+	];
+	const permissionsPane = el("div", "settings-pane");
+	permissionsPane.append(el("div", "settings-section-title", "Permissions"));
+	const permissionCards = el("div", "permission-cards");
+	void window.pi
+		.getSettings()
+		.then((settings) => {
+			for (const { label, mode, glyph, desc } of PERMISSION_CHOICES) {
+				// Label-wrapped hidden radio: native group semantics, card styling.
+				const card = el("label", `permission-card permission-card-${mode}`);
+				const input = el("input") as HTMLInputElement;
+				input.type = "radio";
+				input.name = "defaultPermissionMode";
+				input.checked = settings.defaultPermissionMode === mode;
+				input.addEventListener("change", () => {
+					if (input.checked)
+						void window.pi.setDefaultPermissionMode(mode).catch((err) => console.warn("[settings] setDefaultPermissionMode failed", err));
+				});
+				const body = el("div", "permission-card-body");
+				body.append(el("div", "permission-card-title", label), el("div", "permission-card-desc", desc));
+				card.append(input, el("span", "permission-card-icon", glyph), body, el("span", "permission-card-check", "✓"));
+				permissionCards.append(card);
+			}
+		})
+		.catch((err) => console.warn("[settings] getSettings failed", err));
+	permissionsPane.append(
+		permissionCards,
+		el(
+			"div",
+			"settings-hint",
+			"New tabs start with the selected mode. Each chat box has a permission dropdown in its bottom button strip; Shift+Tab cycles bypass → accept edits → plan mode, or type /permissions in the chat.",
+		),
+	);
+
 	// ---- Compaction pane ----
 	// Mirrors the pi-plus TUI /settings compaction rows. Scopes differ: the
 	// on/off flag is the default profile's agent-dir settings.json, while
@@ -365,6 +409,7 @@ function init(): void {
 	const categories: Categories = [
 		{ label: "Profiles", pane: profilesPane },
 		{ label: "Appearance", pane: appearancePane },
+		{ label: "Permissions", pane: permissionsPane },
 		{ label: "Compaction", pane: compactionPane },
 		{ label: "Editors", pane: editorsPane },
 	];
@@ -374,7 +419,7 @@ function init(): void {
 		navItems.set(label, item);
 		nav.append(item);
 	}
-	content.append(profilesPane, appearancePane, compactionPane, editorsPane);
+	content.append(profilesPane, appearancePane, permissionsPane, compactionPane, editorsPane);
 	selectCategory("Profiles", categories);
 
 	void window.pi.listProfiles().then(renderProfiles).catch((err) => console.warn("[settings] listProfiles failed", err));

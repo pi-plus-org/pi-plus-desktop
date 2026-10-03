@@ -1,7 +1,7 @@
 /**
  * Native application menu. Profile maintenance and theme management live in
  * the dedicated Settings window (opened via Pi+ > Settings… or Cmd+,), which
- * main creates directly; renderer-targeted actions (New Tab) are delegated
+ * main creates directly; renderer-targeted actions (New Chat) are delegated
  * via the menu:action push channel to the main window's WebContents.
  */
 
@@ -44,9 +44,8 @@ export function buildApplicationMenu(
 		{
 			label: "File",
 			submenu: [
-				// ⌘N is the primary "new chat" chord; ⌘T stays as an alias.
+				// ⌘N is the "new chat" chord.
 				{ label: "New Chat", accelerator: "CmdOrCtrl+N", click: () => send({ action: "new-tab" }) },
-				{ label: "New Tab", accelerator: "CmdOrCtrl+T", click: () => send({ action: "new-tab" }) },
 				// ⌘W/⌃W closes the active session tab — but only on the main
 				// window (the renderer owns tab state). On any other window
 				// (Settings…) it behaves like a normal window close. The main

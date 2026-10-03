@@ -8,6 +8,7 @@ import type {
 	ChatMessageDTO,
 	ContentBlockDTO,
 	EnsureResult,
+	PermissionMode,
 	QueueDTO,
 	SanitizedEvent,
 	SessionListItemDTO,
@@ -47,6 +48,9 @@ export interface TabState {
 	sessionName?: string;
 	model: string;
 	thinkingLevel: string;
+	/** Tool-permission mode (set on create, mirrored from meta; the composer
+	 *  dropdown writes it optimistically via setPermissionMode). */
+	permissionMode: PermissionMode;
 	items: ChatItem[];
 	tools: Map<string, ToolBlock>;
 	/** Live blocks of the in-flight assistant message, by content index. */
@@ -145,6 +149,7 @@ class Store {
 			queue: { steering: [], followUp: [] },
 			model: "",
 			thinkingLevel: "",
+			permissionMode: desc.permissionMode,
 			items: [],
 			tools: new Map(),
 			streamBlocks: new Map(),
@@ -232,6 +237,15 @@ class Store {
 		tab.model = meta.model;
 		tab.thinkingLevel = meta.thinkingLevel;
 		tab.cwd = meta.cwd;
+		tab.permissionMode = meta.permissionMode;
+	}
+
+	/** Optimistic permission-mode update after window.pi.setPermissionMode. */
+	applyPermissionMode(tabId: string, mode: PermissionMode): void {
+		const tab = this.tabs.get(tabId);
+		if (!tab || tab.permissionMode === mode) return;
+		tab.permissionMode = mode;
+		this.emit({ type: "meta", tabId });
 	}
 
 	/** Optimistic echo of the user's sent message (the SDK emits no event for it). */

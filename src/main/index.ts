@@ -9,7 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme } from "electron";
 import { isImagePath } from "../shared/attachments.ts";
-import { IPC, type CompactionPatch, type DirEntryDTO, type ListDirResultDTO, type ProfileDTO, type ThemeMode } from "../shared/ipc-types.ts";
+import { IPC, type CompactionPatch, type DirEntryDTO, type ListDirResultDTO, type PermissionMode, type ProfileDTO, type ThemeMode } from "../shared/ipc-types.ts";
 import { LoginBridge } from "./auth-bridge.ts";
 import { DialogBridge } from "./dialogs.ts";
 import { listAvailableEditors, openInEditor } from "./editor.ts";
@@ -77,7 +77,7 @@ function webContentsForTab(_tabId: string) {
 }
 
 const dialogBridge = new DialogBridge(webContentsForTab);
-const sessionHost = new SessionHost(webContentsForTab, dialogBridge, profileStore);
+const sessionHost = new SessionHost(webContentsForTab, dialogBridge, profileStore, () => settings.defaultPermissionMode);
 
 // Provider-login prompts are driven by the Settings window (login is only
 // started from the profile form there).
@@ -167,6 +167,7 @@ function registerIpc(): void {
 	ipcMain.handle(IPC.invoke.listSkills, (_e, tabId: string) => sessionHost.listSkills(tabId));
 	ipcMain.handle(IPC.invoke.listCommands, (_e, tabId: string) => sessionHost.listCommands(tabId));
 	ipcMain.handle(IPC.invoke.listModels, (_e, tabId: string) => sessionHost.listModels(tabId));
+	ipcMain.handle(IPC.invoke.setPermissionMode, (_e, tabId: string, mode: PermissionMode) => sessionHost.setPermissionMode(tabId, mode));
 
 	ipcMain.handle(IPC.invoke.listProfiles, () => profileStore.list());
 	ipcMain.handle(IPC.invoke.createProfile, (_e, name: string, profile: ProfileDTO) => profileStore.create(name, profile));
@@ -184,7 +185,18 @@ function registerIpc(): void {
 	ipcMain.handle(IPC.invoke.authStatus, (_e, name: string) => profileStore.authStatus(name));
 	ipcMain.handle(IPC.invoke.cleanProfileDir, (_e, name: string) => profileStore.cleanProfileDir(name));
 
-	ipcMain.handle(IPC.invoke.getSettings, () => ({ theme: settings.theme, editor: settings.editor, sidebarWidth: settings.sidebarWidth }));
+	ipcMain.handle(IPC.invoke.getSettings, () => ({
+		theme: settings.theme,
+		editor: settings.editor,
+		sidebarWidth: settings.sidebarWidth,
+		defaultPermissionMode: settings.defaultPermissionMode,
+	}));
+	ipcMain.handle(IPC.invoke.setDefaultPermissionMode, (_e, mode: PermissionMode) => {
+		if (mode === "bypass" || mode === "acceptEdits" || mode === "plan") {
+			settings.defaultPermissionMode = mode;
+			settings.save();
+		}
+	});
 	ipcMain.handle(IPC.invoke.setTheme, (_e, theme: ThemeMode) => {
 		settings.theme = theme;
 		settings.save();

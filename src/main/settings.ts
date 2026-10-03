@@ -7,14 +7,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import { app } from "electron";
-import type { ThemeMode } from "../shared/ipc-types.ts";
+import type { PermissionMode, ThemeMode } from "../shared/ipc-types.ts";
 
 const THEME_MODES: ThemeMode[] = ["system", "light", "dark"];
+const PERMISSION_MODES: PermissionMode[] = ["bypass", "acceptEdits", "plan"];
 
 interface SettingsFile {
 	theme?: unknown;
 	editor?: unknown;
 	sidebarWidth?: unknown;
+	defaultPermissionMode?: unknown;
 }
 
 export class AppSettings {
@@ -23,6 +25,8 @@ export class AppSettings {
 	editor = "";
 	/** History panel width, drag-resized in the renderer (CSS clamps applied there). */
 	sidebarWidth = 260;
+	/** Permission mode new tabs start with (Settings → Permissions). */
+	defaultPermissionMode: PermissionMode = "bypass";
 
 	private get filePath(): string {
 		return path.join(app.getPath("userData"), "settings.json");
@@ -40,6 +44,9 @@ export class AppSettings {
 		}
 		if (typeof data.editor === "string") this.editor = data.editor;
 		if (typeof data.sidebarWidth === "number" && Number.isFinite(data.sidebarWidth)) this.sidebarWidth = data.sidebarWidth;
+		if (typeof data.defaultPermissionMode === "string" && PERMISSION_MODES.includes(data.defaultPermissionMode as PermissionMode)) {
+			this.defaultPermissionMode = data.defaultPermissionMode as PermissionMode;
+		}
 	}
 
 	save(): void {
@@ -47,7 +54,10 @@ export class AppSettings {
 		fs.mkdirSync(path.dirname(filePath), { recursive: true });
 		const tmpPath = `${filePath}.tmp-${process.pid}`;
 		try {
-			fs.writeFileSync(tmpPath, JSON.stringify({ theme: this.theme, editor: this.editor, sidebarWidth: this.sidebarWidth }, null, 2) + "\n");
+			fs.writeFileSync(
+				tmpPath,
+				JSON.stringify({ theme: this.theme, editor: this.editor, sidebarWidth: this.sidebarWidth, defaultPermissionMode: this.defaultPermissionMode }, null, 2) + "\n",
+			);
 			fs.renameSync(tmpPath, filePath);
 		} catch (err) {
 			fs.rmSync(tmpPath, { force: true });

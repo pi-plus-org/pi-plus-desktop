@@ -689,6 +689,39 @@ body {
 	padding: 4px 8px 8px;
 }
 
+/* Permission-mode dropdown in the chat box's bottom strip, left of ✎
+   (Shift+Tab cycles; the popup reuses .profile-menu styling). acceptEdits
+   tints blue, plan mode amber. */
+.permission-btn {
+	width: fit-content;
+	background: none;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	padding: 2px 8px;
+	font-size: 12px;
+	color: var(--text-dim);
+	cursor: pointer;
+}
+
+.permission-btn:hover:not(:disabled) {
+	color: var(--text);
+	border-color: var(--accent);
+}
+
+.permission-btn:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
+.permission-btn.permission-acceptEdits {
+	color: var(--accent);
+}
+
+.permission-btn.permission-plan {
+	color: var(--warn);
+	border-color: var(--warn);
+}
+
 .composer-attach {
 	height: 30px;
 	width: 30px;
@@ -1112,6 +1145,95 @@ body {
 	gap: 6px;
 	font-size: 13px;
 	cursor: pointer;
+}
+
+/* Settings → Permissions: selectable mode cards over a hidden radio group
+   (icon tints match the composer chip colors: neutral / accent / warn). */
+.permission-cards {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-bottom: 14px;
+}
+
+.permission-card {
+	position: relative;
+	display: grid;
+	grid-template-columns: 28px 1fr 16px;
+	align-items: center;
+	gap: 10px;
+	background: var(--bg-input);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	padding: 10px 12px;
+	cursor: pointer;
+	transition: border-color 0.12s ease;
+}
+
+.permission-card:hover {
+	border-color: var(--text-dim);
+}
+
+.permission-card:has(input:checked) {
+	border-color: var(--accent);
+}
+
+.permission-card:focus-within {
+	border-color: var(--accent);
+}
+
+.permission-card input {
+	position: absolute;
+	inset: 0;
+	opacity: 0;
+	margin: 0;
+}
+
+.permission-card-icon {
+	width: 28px;
+	height: 28px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 8px;
+	background: var(--bg-hover);
+	font-size: 14px;
+	color: var(--text-dim);
+}
+
+.permission-card-bypass .permission-card-icon {
+	color: var(--text);
+}
+
+.permission-card-acceptEdits .permission-card-icon {
+	color: var(--accent);
+}
+
+.permission-card-plan .permission-card-icon {
+	color: var(--warn);
+}
+
+.permission-card-title {
+	font-size: 13px;
+	color: var(--text);
+}
+
+.permission-card-desc {
+	font-size: 12px;
+	line-height: 1.45;
+	color: var(--text-dim);
+	margin-top: 2px;
+}
+
+.permission-card-check {
+	font-size: 13px;
+	color: var(--accent);
+	text-align: center;
+	opacity: 0;
+}
+
+.permission-card:has(input:checked) .permission-card-check {
+	opacity: 1;
 }
 
 /* Labelled setting rows (Compaction pane): control under its label, caption below. */
