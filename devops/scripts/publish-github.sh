@@ -144,7 +144,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
 fi
 
 # --- release ----------------------------------------------------------------
-echo "[publish] creating GitHub release v$VERSION…"
+echo "[publish] creating GitHub release v${VERSION}…"
 gh release create "v$VERSION" "$DMG" "$ZIP" \
 	--title "$APP_NAME $VERSION" \
 	--generate-notes \
