@@ -87,6 +87,12 @@ function modelRef(model: { provider: string; id: string } | undefined): string {
 	return model ? `${model.provider}/${model.id}` : "";
 }
 
+/** "provider/modelId" -> "modelId" (refs without a slash are returned as-is). */
+function modelRefSuffix(ref: string): string {
+	const slash = ref.indexOf("/");
+	return slash < 0 ? ref : ref.slice(slash + 1);
+}
+
 /** SessionInfo (SDK) -> the sidebar row DTO; allMessagesText stays main-side. */
 function toSessionListItem(info: SessionInfo): SessionListItemDTO {
 	return {
@@ -202,9 +208,49 @@ export class SessionHost {
 		}
 		tab.runtime = runtime;
 
+		// A legacy transcript restores the model persisted at save time, which
+		// may not belong to the tab's profile; snap it back before the first
+		// snapshot goes out.
+		const profileModelNotice = await this.enforceProfileModel(tab);
+
 		const result = this.describe(tab);
-		result.modelFallbackMessage = runtime.modelFallbackMessage;
+		const notices = [runtime.modelFallbackMessage, profileModelNotice].filter(Boolean);
+		result.modelFallbackMessage = notices.length ? notices.join(". ") : undefined;
 		return result;
+	}
+
+	/**
+	 * A resumed/legacy transcript restores the model that was active when it
+	 * was saved — which may no longer be one of the tab profile's models
+	 * (removed, renamed, or predating the profile). Switch the session to the
+	 * profile's default (session-only: the profile's stored default is
+	 * untouched), or the first profile model that resolves. No-op without a
+	 * profile, when the current model is already in scope, or when nothing in
+	 * scope resolves. Returns a user-facing notice when a switch happened.
+	 */
+	private async enforceProfileModel(tab: TabHandle): Promise<string | undefined> {
+		const scope = this.profiles.profileModels(tab.profileName);
+		if (!scope?.default) return undefined;
+		const session = this.sessionOf(tab);
+		const current = modelRef(session.model);
+		const snapshot = session.modelRuntime.getAvailableSnapshot();
+		const inScope = (id: string) =>
+			scope.provider ? `${scope.provider}/${id}` === current : modelRefSuffix(current) === id;
+		if (scope.ids.some(inScope)) return undefined;
+		for (const id of [scope.default, ...scope.ids]) {
+			const model = scope.provider
+				? session.modelRuntime.getModel(scope.provider, id)
+				: snapshot.find((entry) => modelRefSuffix(modelRef(entry)) === id);
+			if (!model) continue;
+			try {
+				await session.setModel(model);
+			} catch {
+				// Unselectable (e.g. missing auth) — try the next scope model.
+				continue;
+			}
+			return `Model '${current}' is not in profile '${tab.profileName}'; switched to '${modelRef(model)}'`;
+		}
+		return undefined;
 	}
 
 	/** Full snapshot for IPC returns: meta + sanitized history. */
@@ -432,20 +478,26 @@ export class SessionHost {
 		const snapshot = session.modelRuntime
 			.getAvailableSnapshot()
 			.map((model) => ({ ref: modelRef(model), current: modelRef(model) === current }));
-		// The picker is scoped to the models set on the tab's profile (pi-hub
-		// stores bare ids there, provider on the profile). Tabs without a
+		// The picker shows exactly the models set on the tab's profile (pi-hub
+		// stores bare ids there, provider on the profile) — the host filters,
+		// regardless of how many models the SDK snapshot returns. Profile ids
+		// the provider's catalogue doesn't list are still shown, marked
+		// unavailable (not selectable), like the pi TUI does. Tabs without a
 		// profile, or with none configured, see the full snapshot.
 		const scope = this.profiles.profileModels(tab.profileName);
 		if (!scope || scope.ids.length === 0) return snapshot;
-		const listed = snapshot.filter((entry) => {
-			const slash = entry.ref.indexOf("/");
-			const provider = slash < 0 ? "" : entry.ref.slice(0, slash);
-			const id = slash < 0 ? entry.ref : entry.ref.slice(slash + 1);
-			return scope.ids.includes(id) && (!scope.provider || provider === scope.provider);
-		});
+		const available = new Set(snapshot.map((entry) => entry.ref));
+		const listed: ModelRefDTO[] = [];
+		for (const id of scope.ids) {
+			// Without a profile provider a bare id can only be matched against
+			// the snapshot; unresolvable ones have no name to list.
+			const ref = scope.provider ? `${scope.provider}/${id}` : snapshot.find((entry) => modelRefSuffix(entry.ref) === id)?.ref;
+			if (!ref) continue;
+			listed.push({ ref, current: ref === current, available: available.has(ref) });
+		}
 		// Keep the current selection visible even if it fell out of scope
 		// (e.g. the session fell back after the profile model was removed).
-		if (current && !listed.some((entry) => entry.current)) listed.unshift({ ref: current, current: true });
+		if (current && !listed.some((entry) => entry.current)) listed.unshift({ ref: current, current: true, available: true });
 		return listed;
 	}
 

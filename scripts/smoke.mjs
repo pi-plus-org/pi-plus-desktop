@@ -18,7 +18,7 @@ if (typeof globalThis.require === "undefined") {
 	globalThis.require = createRequire(import.meta.url);
 }
 
-const { existsSync, mkdtempSync } = await import("node:fs");
+const { existsSync, mkdtempSync, readdirSync, symlinkSync } = await import("node:fs");
 const { tmpdir } = await import("node:os");
 const { join } = await import("node:path");
 
@@ -35,10 +35,27 @@ function assert(cond, message) {
 const cwd = mkdtempSync(join(tmpdir(), "pi-plus-smoke-"));
 console.log(`[smoke] cwd: ${cwd}`);
 
+// Isolated agent dir: symlink the real one except `sessions`, so auth,
+// settings and skills resolve identically but the transcripts this test
+// persists (original + clone + cd relocation) stay out of the user's
+// history list.
+const agentDir = mkdtempSync(join(tmpdir(), "pi-plus-smoke-agent-"));
+for (const entry of readdirSync(sdk.AGENT_DIR)) {
+	if (entry === "sessions") continue;
+	symlinkSync(join(sdk.AGENT_DIR, entry), join(agentDir, entry));
+}
+// The /cd relocation resolves its target session dir from the *process*
+// default agent dir (getDefaultSessionDir without an agentDir argument),
+// so the explicit agentDir option above does not cover it — without this
+// env override the moved transcript lands in ~/.pi/agent/sessions and
+// shows up in the desktop's history list.
+process.env.PI_CODING_AGENT_DIR = agentDir;
+
 // Bind-driven runtime (no ui handlers — headless), same construction the
 // desktop SessionHost uses per tab (minus dialogs/profile agent dirs).
 const runtime = await createPlusAgentSessionRuntime({
 	cwd,
+	agentDir,
 	excludeTools: ["subagent"],
 });
 

@@ -49,10 +49,11 @@ export class Dialogs {
 	}
 
 	/** Option list; resolves the chosen id, or undefined on cancel. */
-	selectLocal(title: string, items: { id: string; label: string }[]): Promise<string | undefined> {
+	selectLocal(title: string, items: { id: string; label: string; disabled?: boolean }[]): Promise<string | undefined> {
 		return this.showLocal<string>((box, finish) => {
 			for (const item of items) {
 				const btn = el("button", "dialog-option", item.label);
+				if (item.disabled) (btn as HTMLButtonElement).disabled = true;
 				btn.addEventListener("click", () => finish(item.id));
 				box.append(btn);
 			}

@@ -434,7 +434,12 @@ export class Composer {
 		const models = await window.pi.listModels(tab.tabId);
 		const chosen = await this.dialogs.selectLocal("Model", [
 			{ id: "", label: "→ cycle to the next model" },
-			...models.map((model) => ({ id: model.ref, label: `${model.current ? "● " : "  "}${model.ref}` })),
+			...models.map((model) => ({
+				id: model.ref,
+				// Profile id the provider doesn't list: shown, not selectable (pi TUI parity).
+				label: `${model.current ? "● " : "  "}${model.ref}${model.available === false ? " (unavailable)" : ""}`,
+				disabled: model.available === false,
+			})),
 		]);
 		if (chosen === undefined) return;
 		const ref = await window.pi.setModel(tab.tabId, chosen);

@@ -68,13 +68,16 @@ export class ProfileStore {
 	 * The models set on a profile. pi-hub stores bare model ids (max 3, or the
 	 * legacy single `model`); the provider lives on the profile. Returns null
 	 * for tabs without a profile; ids may be empty when none are configured.
+	 * `default` is the profile's declared default model, resolved the same way
+	 * the SDK's materializer does it: the declared model when it's in the list,
+	 * else the list head.
 	 */
-	profileModels(profileName: string | null): { provider?: string; ids: string[] } | null {
+	profileModels(profileName: string | null): { provider?: string; ids: string[]; default?: string } | null {
 		if (!profileName) return null;
 		const profile = findProfile(profileName);
 		if (!profile) return null;
 		const ids = profile.models?.length ? [...profile.models] : profile.model ? [profile.model] : [];
-		return { provider: profile.provider, ids };
+		return { provider: profile.provider, ids, default: profile.model && ids.includes(profile.model) ? profile.model : ids[0] };
 	}
 
 	/** Resolve the agent dir for a tab: materialized profile dir or the source agent dir. */

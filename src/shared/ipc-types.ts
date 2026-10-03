@@ -74,6 +74,8 @@ export interface SessionMetaDTO {
 export interface EnsureResult {
 	meta: SessionMetaDTO;
 	messages: ChatMessageDTO[];
+	/** Model notice shown as a chat line at session creation: the SDK's
+	 *  fallback report and/or the profile out-of-scope auto-switch. */
 	modelFallbackMessage?: string;
 	/** Set by fork/rewind results: the chosen user message text for the composer. */
 	editorText?: string;
@@ -102,11 +104,14 @@ export interface CommandDTO {
 	source: "extension" | "prompt" | "skill";
 }
 
-/** One model available in the session's runtime; current marks the selection. */
+/** One model in the picker; current marks the selection. */
 export interface ModelRefDTO {
 	/** "provider/modelId" */
 	ref: string;
 	current: boolean;
+	/** False when the runtime has no such model (profile id unknown to the
+	 *  provider's catalogue) — shown but not selectable, like the pi TUI. */
+	available?: boolean;
 }
 
 /** One user message offered by the fork/rewind pickers. */
