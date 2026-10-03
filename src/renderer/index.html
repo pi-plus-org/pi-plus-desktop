@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta
+			http-equiv="Content-Security-Policy"
+			content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+		/>
+		<title>pi-plus</title>
+		<link rel="stylesheet" href="./main.css" />
+	</head>
+	<body>
+		<div id="app">
+			<aside id="sidebar"></aside>
+			<div id="main">
+				<div id="tabbar"></div>
+				<div id="chat"></div>
+				<div id="composer"></div>
+				<div id="newchat"></div>
+			</div>
+		</div>
+		<div id="modal-root"></div>
+		<script type="module" src="./main.js"></script>
+	</body>
+</html>

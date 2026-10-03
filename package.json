@@ -1,0 +1,26 @@
+{
+	"name": "pi-plus-desktop",
+	"version": "0.1.0",
+	"description": "Desktop app for pi-plus: multi-tab AI agent sessions with profile management, built on pi-plus-sdk.",
+	"type": "module",
+	"main": "dist/main.js",
+	"scripts": {
+		"dev": "node scripts/dev.mjs",
+		"build": "node scripts/build.mjs",
+		"start": "electron .",
+		"typecheck": "tsc --noEmit",
+		"smoke": "node scripts/smoke.mjs",
+		"icon": "electron scripts/make-icon.mjs"
+	},
+	"dependencies": {
+		"dompurify": "^3.2.4",
+		"marked": "^15.0.7",
+		"pi-plus-sdk": "file:../pi/packages/plus-api/dist/npm"
+	},
+	"devDependencies": {
+		"@types/node": "^22.13.0",
+		"electron": "^39.0.0",
+		"esbuild": "^0.25.0",
+		"typescript": "^5.8.0"
+	}
+}
