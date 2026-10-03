@@ -21,7 +21,9 @@
 #      for keep).
 #   3. pack-macos.sh + pack-windows.sh → release/Pi+-<version>.dmg and
 #      release/Pi+-<version>-win-x64.zip.
-#   4. gh release create v<version> with both artifacts + auto-generated notes.
+#   4. Push HEAD if the remote lacks it (gh tags the target server-side, so
+#      the commit must exist there), then gh release create v<version> with
+#      both artifacts + auto-generated notes.
 #   5. Commit the package.json/package-lock.json version change and push (when
 #      there is one); the v<version> tag (created by gh in step 4) sits on the
 #      pre-bump commit.
@@ -41,7 +43,7 @@ for arg in "$@"; do
 		--dry-run) DRY_RUN=1 ;;
 		keep | patch | minor | major | premajor | preminor | prepatch | prerelease) BUMP="$arg" ;;
 		-h | --help)
-			sed -n '2,27p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+			sed -n '2,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 			exit 0
 			;;
 		*)
@@ -144,6 +146,15 @@ if [ "$DRY_RUN" -eq 1 ]; then
 fi
 
 # --- release ----------------------------------------------------------------
+# gh creates the v<version> tag server-side at --target, so that commit must
+# already exist on the remote — push first when local history is ahead of it
+# (a stale origin ref just makes this push fail loudly on non-fast-forward).
+BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+if [ "$BRANCH" = "HEAD" ] || ! git merge-base --is-ancestor HEAD "origin/$BRANCH" 2>/dev/null; then
+	echo "[publish] HEAD is not on origin/$BRANCH yet; pushing before creating the release…"
+	git push origin HEAD
+fi
+
 echo "[publish] creating GitHub release v${VERSION}…"
 gh release create "v$VERSION" "$DMG" "$ZIP" \
 	--title "$APP_NAME $VERSION" \
