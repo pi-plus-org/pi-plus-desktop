@@ -281,9 +281,9 @@ function init(): void {
 	);
 
 	// ---- Compaction pane ----
-	// Mirrors the pi-plus TUI /settings compaction rows. Scopes differ: the
-	// on/off flag is the default profile's agent-dir settings.json, while
-	// threshold/floor/cap are process-global pi-plus context settings.
+	// Mirrors the pi-plus TUI /settings compaction rows. One file — the base
+	// ~/.pi/agent/settings.json — in two blocks: the on/off flag is upstream's
+	// `compaction.enabled`, threshold/floor/cap live in the piPlus block.
 	const compactionPane = el("div", "settings-pane");
 	compactionPane.append(el("div", "settings-section-title", "Compaction"));
 
@@ -328,10 +328,10 @@ function init(): void {
 	const capSelect = makeSelect(CAP_CHOICES, (v) => (v === null ? "No cap" : v.toLocaleString("en-US") + " tokens"));
 
 	compactionPane.append(
-		settingRow("Auto-compact", enabledInput, "Compact automatically as the context fills up. Stored in the default profile's agent-dir settings.json — shared with pipi sessions."),
-		settingRow("Compact when context reaches", thresholdSelect, "Percent of the model's context window that triggers auto-compaction."),
+		settingRow("Auto-compact", enabledInput, "Compact automatically as the context fills up. Stored under compaction.enabled in ~/.pi/agent/settings.json — shared with pipi sessions."),
+		settingRow("Compact when context reaches", thresholdSelect, "Percent of the model's context window that triggers auto-compaction. Saved in the same file's piPlus block."),
 		settingRow("Context floor", floorSelect, "Minimum tokens kept available after a compaction — also the hard reserve compaction targets."),
-		settingRow("Context window cap", capSelect, "Treat larger model windows as this many tokens. Applies process-wide, including pipi."),
+		settingRow("Context window cap", capSelect, "Treat larger model windows as this many tokens. Applies to pipi sessions too."),
 	);
 
 	const syncCompaction = (s: CompactionSettingsDTO): void => {

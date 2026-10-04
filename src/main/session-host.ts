@@ -622,9 +622,10 @@ export class SessionHost {
 	}
 
 	/**
-	 * A SettingsManager over the **default profile's** agent dir: that's where
-	 * the compaction on/off flag lives (global settings.json, shared with
-	 * pipi). Per-tab toggles in the composer menu act on the tab's own dir.
+	 * A SettingsManager over the **default profile's** agent dir: the SDK's
+	 * layered storage routes the general `compaction.enabled` key to the base
+	 * agent settings.json (~/.pi/agent, shared with pipi) even under a profile.
+	 * Per-tab toggles in the composer menu act on the tab's own dir.
 	 */
 	private compactionSettings(): SettingsManager {
 		const { default: defaultProfile } = this.profiles.list();
@@ -637,8 +638,9 @@ export class SessionHost {
 	async getCompactionSettings(): Promise<CompactionSettingsDTO> {
 		return {
 			enabled: this.compactionSettings().getCompactionEnabled(),
-			// Threshold/floor/cap are pi-plus context settings: one file under
-			// the source agent dir, read process-wide by every session.
+			// Threshold/floor/cap are the piPlus block of the base agent
+			// settings.json (~/.pi/agent) — the same store pipi's /settings
+			// rows edit, read by every session regardless of profile.
 			thresholdPercent: getAutoCompactThresholdPercent(),
 			floorTokens: getContextFloorTokens(),
 			windowCapTokens: getContextWindowCapTokens() ?? null,

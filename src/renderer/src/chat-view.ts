@@ -88,8 +88,25 @@ function renderCompactionItem(text: string): HTMLElement {
 // Per-message token/cost display lives in the composer status strip (see
 // Composer.renderUsage) — the chat stays clean of usage noise.
 
-function renderAssistantBlocks(tab: TabState, content: ContentBlockDTO[], container: HTMLElement): void {
-	for (const block of content) {
+function assistantContent(message: ChatMessageDTO): ContentBlockDTO[] {
+	return typeof message.content === "string" ? [{ type: "text" as const, text: message.content }] : message.content;
+}
+
+/** Index of the last thinking block in a content array, or -1. */
+function lastThinkingIndex(blocks: ContentBlockDTO[]): number {
+	for (let i = blocks.length - 1; i >= 0; i--) if (blocks[i]?.type === "thinking") return i;
+	return -1;
+}
+
+/** Where/how to render the tab's latest thinking block (open by default). */
+interface LatestThinking {
+	index: number;
+	open: boolean;
+	onToggle: (open: boolean) => void;
+}
+
+function renderAssistantBlocks(tab: TabState, content: ContentBlockDTO[], container: HTMLElement, thinking?: LatestThinking): void {
+	for (const [i, block] of content.entries()) {
 		switch (block.type) {
 			case "text": {
 				const node = el("div", "md");
@@ -98,10 +115,14 @@ function renderAssistantBlocks(tab: TabState, content: ContentBlockDTO[], contai
 				break;
 			}
 			case "thinking": {
-				const details = el("details", "thinking");
+				const details = el("details", "thinking") as HTMLDetailsElement;
 				const summary = el("summary", "thinking-summary", "Thinking");
 				details.append(summary);
 				details.append(el("div", "thinking-body", block.thinking));
+				if (thinking && i === thinking.index) {
+					details.open = thinking.open;
+					details.addEventListener("toggle", () => thinking.onToggle(details.open));
+				}
 				container.append(details);
 				break;
 			}
@@ -116,11 +137,10 @@ function renderAssistantBlocks(tab: TabState, content: ContentBlockDTO[], contai
 	}
 }
 
-function renderAssistantItem(tab: TabState, message: ChatMessageDTO): HTMLElement {
+function renderAssistantItem(tab: TabState, message: ChatMessageDTO, thinking?: LatestThinking): HTMLElement {
 	const row = el("div", "msg msg-assistant");
 	const body = el("div", "msg-assistant-body");
-	const content = typeof message.content === "string" ? [{ type: "text" as const, text: message.content }] : message.content;
-	renderAssistantBlocks(tab, content, body);
+	renderAssistantBlocks(tab, assistantContent(message), body, thinking);
 	row.append(body);
 	if (message.errorMessage) row.append(el("div", "msg-error", message.errorMessage));
 	return row;
@@ -140,6 +160,15 @@ export class ChatView {
 	private root: HTMLElement;
 	/** Node holding the live streaming content for fast delta updates. */
 	private streamNode: HTMLElement | null = null;
+	/**
+	 * Per-tab open/closed state of the latest thinking block. The stream
+	 * re-renders on every delta and refreshTools re-renders the whole list,
+	 * so the block is identified by its text: deltas grow the same string
+	 * (prefix match) and finalization hands it over to the items pass
+	 * unchanged, while a new thinking block never prefix-matches and so
+	 * starts expanded again.
+	 */
+	private thinkingState = new Map<string, { text: string; open: boolean }>();
 
 	constructor(root: HTMLElement) {
 		this.root = root;
@@ -161,19 +190,44 @@ export class ChatView {
 		const node = this.containerFor(tab);
 		node.replaceChildren();
 		this.streamNode = null;
-		for (const item of tab.items) {
-			node.append(this.renderItem(tab, item));
+		// The stream tail owns the latest-thinking slot when it is thinking;
+		// otherwise it belongs to the last finalized thinking block.
+		let openOn: { item: number; thinking: LatestThinking } | undefined;
+		if (![...tab.streamBlocks.values()].some((b) => b.type === "thinking")) {
+			for (let i = tab.items.length - 1; i >= 0; i--) {
+				const item = tab.items[i];
+				if (item?.kind !== "assistant") continue;
+				const content = assistantContent(item.message);
+				const index = lastThinkingIndex(content);
+				if (index >= 0) {
+					openOn = { item: i, thinking: this.resolveThinking(tab.tabId, content, index) };
+					break;
+				}
+			}
+		}
+		for (const [i, item] of tab.items.entries()) {
+			node.append(this.renderItem(tab, item, openOn && openOn.item === i ? openOn.thinking : undefined));
 		}
 		this.renderStream(tab);
 		this.scrollToEnd(tab);
 	}
 
-	private renderItem(tab: TabState, item: TabState["items"][number]): HTMLElement {
+	/** Decide the open state for the block at `index` and build its descriptor. */
+	private resolveThinking(tabId: string, blocks: ContentBlockDTO[], index: number): LatestThinking {
+		const block = blocks[index];
+		const text = block?.type === "thinking" ? block.thinking : "";
+		const prev = this.thinkingState.get(tabId);
+		const open = prev && text.startsWith(prev.text) ? prev.open : true;
+		this.thinkingState.set(tabId, { text, open });
+		return { index, open, onToggle: (next) => this.thinkingState.set(tabId, { text, open: next }) };
+	}
+
+	private renderItem(tab: TabState, item: TabState["items"][number], thinking?: LatestThinking): HTMLElement {
 		switch (item.kind) {
 			case "user":
 				return renderUserItem(item.text, item.attachments);
 			case "assistant":
-				return renderAssistantItem(tab, item.message);
+				return renderAssistantItem(tab, item.message, thinking);
 			case "toolResult":
 				return renderToolResultItem(item.message);
 			case "compaction":
@@ -207,7 +261,8 @@ export class ChatView {
 		}
 		const body = el("div", "msg-assistant-body");
 		const blocks = [...tab.streamBlocks.entries()].sort((a, b) => a[0] - b[0]).map(([, block]) => block);
-		renderAssistantBlocks(tab, blocks, body);
+		const thinkingIndex = lastThinkingIndex(blocks);
+		renderAssistantBlocks(tab, blocks, body, thinkingIndex >= 0 ? this.resolveThinking(tab.tabId, blocks, thinkingIndex) : undefined);
 		this.streamNode.replaceChildren(body);
 		this.scrollToEnd(tab, false);
 	}
@@ -215,6 +270,7 @@ export class ChatView {
 	removeTab(tabId: string): void {
 		this.containers.get(tabId)?.remove();
 		this.containers.delete(tabId);
+		this.thinkingState.delete(tabId);
 		if (this.streamNode && !this.streamNode.isConnected) this.streamNode = null;
 	}
 

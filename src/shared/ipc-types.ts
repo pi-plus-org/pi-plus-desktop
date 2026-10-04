@@ -285,6 +285,11 @@ export interface ListDirResultDTO {
 /** App-wide theme preference, mirrored by the main-process settings store. */
 export type ThemeMode = "system" | "light" | "dark";
 
+/**
+ * Desktop chrome preferences, stored in the piPlus block of the base agent
+ * settings.json (~/.pi/agent/settings.json) via pi-plus-sdk; `editor` is the
+ * upstream `externalEditor` key of that same file (shared with pipi's Ctrl+G).
+ */
 export interface AppSettingsDTO {
 	theme: ThemeMode;
 	/** External editor command line for the composer (e.g. "code --wait"). */
@@ -296,10 +301,11 @@ export interface AppSettingsDTO {
 }
 
 /**
- * Compaction settings, assembled from two stores: `enabled` lives in the
- * default profile's agent-dir settings.json (shared with pipi), while
- * threshold/floor/cap are the pi-plus context settings (~/.pi/agent,
- * process-global). `windowCapTokens` null = no cap.
+ * Compaction settings, all in ~/.pi/agent/settings.json (shared with pipi):
+ * `enabled` is the upstream `compaction.enabled` key (reached through the
+ * default profile's layered SettingsManager, which routes it to the base
+ * file), threshold/floor/cap live in the piPlus block. `windowCapTokens`
+ * null = no cap.
  */
 export interface CompactionSettingsDTO {
 	enabled: boolean;

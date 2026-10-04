@@ -191,28 +191,28 @@ function registerIpc(): void {
 		sidebarWidth: settings.sidebarWidth,
 		defaultPermissionMode: settings.defaultPermissionMode,
 	}));
-	ipcMain.handle(IPC.invoke.setDefaultPermissionMode, (_e, mode: PermissionMode) => {
+	ipcMain.handle(IPC.invoke.setDefaultPermissionMode, async (_e, mode: PermissionMode) => {
 		if (mode === "bypass" || mode === "acceptEdits" || mode === "plan") {
 			settings.defaultPermissionMode = mode;
-			settings.save();
+			await settings.save();
 		}
 	});
-	ipcMain.handle(IPC.invoke.setTheme, (_e, theme: ThemeMode) => {
+	ipcMain.handle(IPC.invoke.setTheme, async (_e, theme: ThemeMode) => {
 		settings.theme = theme;
-		settings.save();
+		await settings.save();
 		// The renderer picks the new palette up via prefers-color-scheme.
 		nativeTheme.themeSource = theme;
 	});
-	ipcMain.handle(IPC.invoke.setEditor, (_e, command: string) => {
+	ipcMain.handle(IPC.invoke.setEditor, async (_e, command: string) => {
 		settings.editor = command.trim();
-		settings.save();
+		await settings.save();
 	});
 	ipcMain.handle(IPC.invoke.openInEditor, (_e, text: string) => openInEditor(settings.editor, text));
 	ipcMain.handle(IPC.invoke.listEditors, () => listAvailableEditors());
-	ipcMain.handle(IPC.invoke.setSidebarWidth, (_e, width: number) => {
+	ipcMain.handle(IPC.invoke.setSidebarWidth, async (_e, width: number) => {
 		if (Number.isFinite(width)) {
 			settings.sidebarWidth = Math.round(width);
-			settings.save();
+			await settings.save();
 		}
 	});
 
