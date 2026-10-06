@@ -37,6 +37,9 @@ export interface ChatMessageDTO {
 	toolCallId?: string;
 	toolName?: string;
 	isError?: boolean;
+	/** Display diff lifted from the edit tool result's `details.diff`; only set
+	 *  on toolResult messages whose tool produced one. */
+	diff?: string;
 	customType?: string;
 	display?: boolean;
 	timestamp?: number;
@@ -101,7 +104,9 @@ export interface CommandDTO {
 	/** Invocation name without the leading "/" (skills appear as "skill:name"). */
 	name: string;
 	description?: string;
-	source: "extension" | "prompt" | "skill";
+	/** "builtin" entries are desktop-only intercepts (like the pi TUI builtins)
+	 *  that never reach session.prompt(). */
+	source: "extension" | "prompt" | "skill" | "builtin";
 }
 
 /** One model in the picker; current marks the selection. */

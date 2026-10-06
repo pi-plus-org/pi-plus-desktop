@@ -7,6 +7,7 @@
 import { isImagePath } from "../../shared/attachments.ts";
 import type { ChatMessageDTO, ContentBlockDTO } from "../../shared/ipc-types.ts";
 import { thumbSrc } from "./image-thumb.ts";
+import { renderDiffView, renderAddedFile } from "./diff-view.ts";
 import { renderMarkdownToHtml, escapeHtml } from "./markdown.ts";
 import { store, type TabState, type ToolBlock } from "./store.ts";
 
@@ -146,9 +147,47 @@ function renderAssistantItem(tab: TabState, message: ChatMessageDTO, thinking?: 
 	return row;
 }
 
-function renderToolResultItem(message: ChatMessageDTO): HTMLElement {
+/**
+ * Recover the full arguments of a tool call by id: assistant items carry the
+ * complete (untruncated) toolCall argument objects across IPC, and the live
+ * stream tail may still hold the block. Used for diff headers/write content.
+ */
+function findToolCallArgs(tab: TabState, toolCallId: string): Record<string, unknown> | undefined {
+	if (!toolCallId) return undefined;
+	const scan = (blocks: ContentBlockDTO[]): Record<string, unknown> | undefined => {
+		for (const block of blocks) {
+			if (block.type === "toolCall" && block.id === toolCallId) {
+				return typeof block.arguments === "object" && block.arguments !== null ? (block.arguments as Record<string, unknown>) : undefined;
+			}
+		}
+		return undefined;
+	};
+	for (let i = tab.items.length - 1; i >= 0; i--) {
+		const item = tab.items[i];
+		if (item?.kind !== "assistant") continue;
+		const found = scan(assistantContent(item.message));
+		if (found) return found;
+	}
+	return scan([...tab.streamBlocks.values()]);
+}
+
+function renderToolResultItem(tab: TabState, message: ChatMessageDTO): HTMLElement {
 	const row = el("div", "msg msg-toolresult");
-	const label = el("div", "toolresult-label", `${message.isError ? "✗" : "✓"} ${message.toolName ?? "tool result"}`);
+	const name = message.toolName ?? "tool result";
+	const args = findToolCallArgs(tab, message.toolCallId ?? "");
+	const path = typeof args?.file_path === "string" ? args.file_path : typeof args?.path === "string" ? args.path : "";
+	// Colorful diff instead of the raw JSON/text preview for edit/write.
+	if (!message.isError && name === "edit" && message.diff) {
+		row.append(el("div", "toolresult-label", `✎ edit${path ? ` ${path}` : ""}`));
+		row.append(renderDiffView(message.diff));
+		return row;
+	}
+	if (!message.isError && name === "write" && typeof args?.content === "string" && args.content.trim() !== "") {
+		row.append(el("div", "toolresult-label", `✚ write${path ? ` ${path}` : ""}`));
+		row.append(renderAddedFile(args.content));
+		return row;
+	}
+	const label = el("div", "toolresult-label", `${message.isError ? "✗" : "✓"} ${name}`);
 	row.append(label);
 	const text = typeof message.content === "string" ? message.content : message.content.map((b) => (b.type === "text" ? b.text : b.type === "image" ? "[image]" : "")).join("\n");
 	if (text.trim()) row.append(el("pre", "tool-pre", text));
@@ -229,7 +268,7 @@ export class ChatView {
 			case "assistant":
 				return renderAssistantItem(tab, item.message, thinking);
 			case "toolResult":
-				return renderToolResultItem(item.message);
+				return renderToolResultItem(tab, item.message);
 			case "compaction":
 				return renderCompactionItem(item.text);
 			case "notice":

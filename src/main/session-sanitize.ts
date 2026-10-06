@@ -15,6 +15,7 @@ import type { ChatMessageDTO, ContentBlockDTO, SanitizedEvent, UpdateDTO } from 
 type AnyAgentMessage = { role: string; content?: unknown; [key: string]: unknown };
 
 const TOOL_PREVIEW_LIMIT = 4096;
+const TOOL_DIFF_LIMIT = 32768;
 const SNAPSHOT_TEXT_LIMIT = 2048;
 const SNAPSHOT_MESSAGE_LIMIT = 500;
 
@@ -69,6 +70,15 @@ export function messageToDTO(message: AnyAgentMessage): ChatMessageDTO {
 		display: m.display as boolean | undefined,
 		timestamp: m.timestamp as number | undefined,
 	};
+	// The edit tool's result carries a display-formatted diff in `details`;
+	// lift it so the renderer can show a colorful diff (live and replay alike,
+	// since snapshots go through this same function).
+	if (dto.role === "toolResult") {
+		const details = m.details as Record<string, unknown> | undefined;
+		if (typeof details?.diff === "string") {
+			dto.diff = details.diff.length > TOOL_DIFF_LIMIT ? `${details.diff.slice(0, TOOL_DIFF_LIMIT)}\n… [diff truncated]` : details.diff;
+		}
+	}
 	const usage = m.usage as Record<string, unknown> | undefined;
 	if (usage && dto.role === "assistant") {
 		const cost = usage.cost as Record<string, unknown> | undefined;

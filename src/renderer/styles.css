@@ -13,6 +13,12 @@
 	--danger: #e5534b;
 	--ok: #57ab5a;
 	--warn: #c69026;
+	--diff-add: #3fb950;
+	--diff-add-bg: rgba(46, 160, 67, 0.15);
+	--diff-del: #f85149;
+	--diff-del-bg: rgba(248, 81, 73, 0.15);
+	--diff-ctx: #8a8f98;
+	--diff-ln: #6e7681;
 	--radius: 8px;
 }
 
@@ -786,6 +792,87 @@ body {
 
 .msg-toolresult {
 	margin: -6px 0 10px 12px;
+}
+
+/* ---------------- colorful diffs (edit/write tool results) ----------------
+   Rows mirror the SDK display-diff format: line-number gutter, +/- sign,
+   content. A lone -/+ pair gets the changed span inverted (the CLI rule). */
+
+.diff-view {
+	margin-top: 4px;
+	background: var(--bg-sidebar);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+	font-size: 12px;
+	max-height: 320px;
+	overflow: auto;
+	tab-size: 4;
+	padding: 4px 0;
+}
+
+.diff-line {
+	display: flex;
+	gap: 6px;
+	padding: 0 10px;
+}
+
+.diff-ln {
+	flex: 0 0 auto;
+	min-width: 3ch;
+	text-align: right;
+	color: var(--diff-ln);
+	user-select: none;
+}
+
+.diff-sign {
+	flex: 0 0 auto;
+	user-select: none;
+}
+
+.diff-add .diff-sign,
+.diff-del .diff-sign {
+	font-weight: 600;
+}
+
+.diff-text {
+	flex: 1 1 auto;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.diff-add {
+	background: var(--diff-add-bg);
+	color: var(--diff-add);
+}
+
+.diff-del {
+	background: var(--diff-del-bg);
+	color: var(--diff-del);
+}
+
+.diff-ctx {
+	color: var(--diff-ctx);
+}
+
+.diff-sep {
+	color: var(--diff-ln);
+	font-style: italic;
+}
+
+.diff-view mark {
+	border-radius: 2px;
+	padding: 0 1px;
+}
+
+.diff-add mark {
+	background: var(--diff-add);
+	color: var(--bg);
+}
+
+.diff-del mark {
+	background: var(--diff-del);
+	color: var(--bg);
 }
 
 .toolresult-label {
@@ -2185,6 +2272,12 @@ body {
 		--danger: #cf222e;
 		--ok: #1a7f37;
 		--warn: #9a6700;
+		--diff-add: #1a7f37;
+		--diff-add-bg: rgba(46, 160, 67, 0.12);
+		--diff-del: #cf222e;
+		--diff-del-bg: rgba(255, 129, 130, 0.18);
+		--diff-ctx: #656d76;
+		--diff-ln: #8c959f;
 	}
 
 	.dialog-overlay {

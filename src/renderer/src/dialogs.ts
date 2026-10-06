@@ -165,11 +165,9 @@ export class Dialogs {
 				const approveBypass = el("button", "dialog-btn", "Approve & bypass permissions");
 				approveBypass.title = "Run the plan fully automatically (permission mode bypass)";
 				approveBypass.addEventListener("click", () => finish("approveBypass"));
-				const edit = el("button", "dialog-btn", "Edit plan");
-				edit.addEventListener("click", () => finish("edit"));
 				const stay = el("button", "dialog-btn", "Stay in plan mode");
 				stay.addEventListener("click", () => finish("stay"));
-				buttons.append(approveEdits, approveBypass, edit, stay);
+				buttons.append(approveEdits, approveBypass, stay);
 				box.append(body, buttons);
 				break;
 			}

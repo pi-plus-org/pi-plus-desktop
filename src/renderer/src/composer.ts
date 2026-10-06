@@ -10,7 +10,8 @@
  * An "@"-triggered file/folder picker menu rooted at the active tab's cwd
  * inserts an inline @path reference *and* adds an attachment chip; a
  * line-initial "/" opens the slash-command menu (extension commands, prompt
- * templates and skills — the session-executable set).
+ * templates and skills — the session-executable set — plus the "/compact"
+ * builtin, which submit() intercepts like the pi TUI and never sends).
  *
  * A single status strip above the box merges the session capabilities
  * (model and thinking pickers, skills popover, manual compact/abort) with
@@ -152,6 +153,11 @@ export class Composer {
 	/** Commands per tab (fetched lazily; cleared on tab switch — commands are cwd/extension dependent). */
 	private slashCache = new Map<string, CommandDTO[]>();
 	private slashRequest = 0;
+	/** TUI-builtin parity: "/compact" is intercepted at submit and never
+	 *  reaches session.prompt(), so it is merged into the menu client-side. */
+	private static readonly BUILTIN_SLASH: CommandDTO[] = [
+		{ name: "compact", description: "Compact the context now (optional focus instructions)", source: "builtin" },
+	];
 	private lastTabId: string | null = null;
 	private onSend: (text: string, attachments: string[], mode?: "steer" | "followUp") => void;
 	private dialogs: Dialogs;
@@ -565,7 +571,7 @@ export class Composer {
 		const tab = store.active;
 		if (!tab) return;
 		if (tab.compacting) {
-			await window.pi.abortCompaction(tab.tabId);
+			await this.runCompact();
 			return;
 		}
 		const instructions = await this.dialogs.promptLocal(
@@ -574,7 +580,19 @@ export class Composer {
 			"Optional focus instructions — leave empty to skip",
 		);
 		if (instructions === undefined) return;
-		const result = await window.pi.compact(tab.tabId, instructions || undefined);
+		await this.runCompact(instructions || undefined);
+	}
+
+	/** Compact now with optional focus instructions, or abort a running
+	 *  compaction. Shared by the toolbar chip and the typed "/compact". */
+	private async runCompact(instructions?: string): Promise<void> {
+		const tab = store.active;
+		if (!tab) return;
+		if (tab.compacting) {
+			await window.pi.abortCompaction(tab.tabId);
+			return;
+		}
+		const result = await window.pi.compact(tab.tabId, instructions);
 		const after = result.estimatedTokensAfter === undefined ? "?" : `~${formatTokens(result.estimatedTokensAfter)}`;
 		this.dialogs.notify(`Compacted ${formatTokens(result.tokensBefore)} → ${after} tokens`, "info");
 	}
@@ -1035,7 +1053,10 @@ export class Composer {
 		const apply = (commands: CommandDTO[]): void => {
 			if (request !== this.slashRequest || !this.slash || this.slash.filter !== filter) return;
 			const lower = filter.toLowerCase();
-			this.slash.entries = commands.filter(
+			const merged = commands.some((c) => Composer.BUILTIN_SLASH.some((b) => b.name === c.name))
+				? commands
+				: [...Composer.BUILTIN_SLASH, ...commands];
+			this.slash.entries = merged.filter(
 				(c) => !lower || c.name.toLowerCase().includes(lower) || (c.description ?? "").toLowerCase().includes(lower),
 			);
 			this.slash.active = 0;
@@ -1140,6 +1161,16 @@ export class Composer {
 		const text = this.textarea.value.trim();
 		if (!text) return;
 		if (!store.activeTabId) return;
+		// TUI-builtin parity (interactive-mode.ts): "/compact [instructions]"
+		// compacts the context instead of being sent as a chat message.
+		if (text === "/compact" || text.startsWith("/compact ")) {
+			const rest = text.slice("/compact".length).trim();
+			this.textarea.value = "";
+			this.closeSlashMenu();
+			this.closeAtMenu();
+			void this.runCompact(rest || undefined);
+			return;
+		}
 		const attachments = this.attachments;
 		const mode = store.active?.streaming ? this.sendMode : undefined;
 		this.textarea.value = "";
