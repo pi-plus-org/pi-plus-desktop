@@ -14,6 +14,7 @@ import type {
 	SessionListItemDTO,
 	SessionMetaDTO,
 	TabDescriptor,
+	TaskDTO,
 	UpdateDTO,
 } from "../../shared/ipc-types.ts";
 
@@ -43,6 +44,8 @@ export interface TabState {
 	meta?: SessionMetaDTO;
 	/** Queued messages while a turn is streaming. */
 	queue: QueueDTO;
+	/** Pinned todo glance: the tab session's task list (pushed on change). */
+	tasks: TaskDTO[];
 	// Convenience mirrors of meta fields (kept in sync by setTabMeta).
 	sessionId?: string;
 	sessionName?: string;
@@ -70,6 +73,7 @@ export type StoreEvent =
 	| { type: "stream"; tabId: string } // streaming buffer changed
 	| { type: "status"; tabId: string } // streaming flag changed
 	| { type: "meta"; tabId: string } // meta/queue/compacting changed
+	| { type: "tasks"; tabId: string } // task list changed
 	| { type: "history" }; // sidebar refresh
 
 type Listener = (event: StoreEvent) => void;
@@ -147,6 +151,7 @@ class Store {
 			streaming: false,
 			compacting: false,
 			queue: { steering: [], followUp: [] },
+			tasks: [],
 			model: "",
 			thinkingLevel: "",
 			permissionMode: desc.permissionMode,
@@ -204,6 +209,14 @@ class Store {
 		this.setTabMeta(tab, meta);
 		this.emit({ type: "meta", tabId });
 		this.emit({ type: "history" }); // name/persisted changes affect the sidebar
+	}
+
+	/** A main-pushed session:tasks update for the pinned todo glance. */
+	applyTasks(tabId: string, tasks: TaskDTO[]): void {
+		const tab = this.tabs.get(tabId);
+		if (!tab) return;
+		tab.tasks = tasks;
+		this.emit({ type: "tasks", tabId });
 	}
 
 	/** Full repaint after a session replacement (clone/fork/cd/rewind). */

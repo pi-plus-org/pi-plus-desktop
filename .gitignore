@@ -147,3 +147,6 @@ release/
 
 # Downloaded Electron win32 distribution cache (devops/scripts/pack-windows.sh)
 .pack-cache/
+
+# Local build/dev + ad-hoc SDK repro scripts (not product code)
+scripts/

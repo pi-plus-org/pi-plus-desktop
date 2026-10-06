@@ -82,6 +82,7 @@ export function buildApplicationMenu(
 				{ label: "Previous Tab", accelerator: "CmdOrCtrl+Shift+[", click: () => send({ action: "prev-tab" }) },
 				{ label: "Next Tab", accelerator: "CmdOrCtrl+Shift+]", click: () => send({ action: "next-tab" }) },
 				{ label: "Toggle History", accelerator: "CmdOrCtrl+B", click: () => send({ action: "toggle-sidebar" }) },
+			{ label: "Toggle File Tree", accelerator: "CmdOrCtrl+Alt+B", click: () => send({ action: "toggle-filetree" }) },
 				{ label: "Reload History", accelerator: "CmdOrCtrl+R", click: () => send({ action: "reload-history" }) },
 				{ label: "Edit Draft in External Editor", accelerator: "CmdOrCtrl+Alt+E", click: () => send({ action: "edit-externally" }) },
 				{ type: "separator" },

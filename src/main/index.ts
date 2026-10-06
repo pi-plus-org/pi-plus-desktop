@@ -4,10 +4,10 @@
  */
 
 import { existsSync } from "node:fs";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, shell } from "electron";
 import { isImagePath } from "../shared/attachments.ts";
 import { IPC, type CompactionPatch, type DirEntryDTO, type ListDirResultDTO, type PermissionMode, type ProfileDTO, type ThemeMode } from "../shared/ipc-types.ts";
 import { LoginBridge } from "./auth-bridge.ts";
@@ -22,6 +22,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Keys mirror IMAGE_EXTENSIONS in shared/attachments.ts (isImagePath gate above).
 const MAX_PREVIEW_IMAGE_BYTES = 10 * 1024 * 1024;
+// Dropped/pasted payloads without a filesystem path are persisted before they
+// can join the path-reference attachment pipeline; keep the inbox generous but
+// bounded so a misdropped video can't fill the disk.
+const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const MAX_LIST_DIR_ENTRIES = 60;
 const IMAGE_MIME_BY_EXT: Record<string, string> = {
 	png: "image/png",
@@ -189,6 +193,7 @@ function registerIpc(): void {
 		theme: settings.theme,
 		editor: settings.editor,
 		sidebarWidth: settings.sidebarWidth,
+		filetreeWidth: settings.filetreeWidth,
 		defaultPermissionMode: settings.defaultPermissionMode,
 	}));
 	ipcMain.handle(IPC.invoke.setDefaultPermissionMode, async (_e, mode: PermissionMode) => {
@@ -212,6 +217,12 @@ function registerIpc(): void {
 	ipcMain.handle(IPC.invoke.setSidebarWidth, async (_e, width: number) => {
 		if (Number.isFinite(width)) {
 			settings.sidebarWidth = Math.round(width);
+			await settings.save();
+		}
+	});
+	ipcMain.handle(IPC.invoke.setFiletreeWidth, async (_e, width: number) => {
+		if (Number.isFinite(width)) {
+			settings.filetreeWidth = Math.round(width);
 			await settings.save();
 		}
 	});
@@ -247,6 +258,7 @@ function registerIpc(): void {
 	// tab's cwd, prefix-filtered *before* the cap so "keep typing to narrow"
 	// can surface entries beyond it. Type-ahead UIs treat vanished/locked dirs
 	// as "no suggestions", so errors resolve to an empty listing.
+	ipcMain.handle(IPC.invoke.openPath, (_e, target: string) => shell.openPath(target));
 	ipcMain.handle(IPC.invoke.listDir, async (_e, tabId: string, subpath: string, prefixRaw?: string): Promise<ListDirResultDTO> => {
 		const empty: ListDirResultDTO = { entries: [], truncated: false };
 		let cwd: string;
@@ -309,6 +321,30 @@ function registerIpc(): void {
 		} catch {
 			return undefined;
 		}
+	});
+
+	// Inbox for pasted/dropped payloads that carry no filesystem path
+	// (clipboard images, files dragged out of a browser): save the bytes and
+	// hand back an absolute path the attachment pipeline can reference.
+	ipcMain.handle(IPC.invoke.saveAttachment, async (_e, name: string, dataUrl: string): Promise<string> => {
+		if (typeof name !== "string" || typeof dataUrl !== "string") throw new Error("Invalid attachment payload.");
+		const match = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(dataUrl);
+		if (!match?.[2]) throw new Error("Attachment must be a base64 data URL.");
+		const bytes = Buffer.from(match[3] ?? "", "base64");
+		if (bytes.byteLength === 0) throw new Error("Attachment is empty.");
+		if (bytes.byteLength > MAX_ATTACHMENT_BYTES) throw new Error(`Attachment too large (max ${Math.round(MAX_ATTACHMENT_BYTES / (1024 * 1024))} MB).`);
+		// Keep only a safe basename; derive an extension from the mime type when
+		// the payload name carries none ("image/png" → .png).
+		const rawBase = path.basename(name).replace(/[^\w.()-]+/g, "_").replace(/^_+|_+$/g, "");
+		const mimeExt = match[1]?.split("/")[1]?.replace(/\+.*$/, "");
+		const ext = path.extname(rawBase) || (mimeExt ? `.${mimeExt}` : "");
+		const base = rawBase || "attachment";
+		const dir = path.join(app.getPath("userData"), "media-inbox");
+		await mkdir(dir, { recursive: true });
+		let candidate = path.join(dir, `${base}${ext}`);
+		for (let n = 2; existsSync(candidate); n++) candidate = path.join(dir, `${base}-${n}${ext}`);
+		await writeFile(candidate, bytes);
+		return candidate;
 	});
 
 	// One-way channel — no menu refresh needed.

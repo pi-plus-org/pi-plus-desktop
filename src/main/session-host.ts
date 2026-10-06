@@ -31,6 +31,7 @@ import {
 	type SessionMetaDTO,
 	type SkillDTO,
 	type TabDescriptor,
+	type TaskDTO,
 } from "../shared/ipc-types.ts";
 import type { DialogBridge } from "./dialogs.ts";
 import type { ProfileStore } from "./profiles.ts";
@@ -40,6 +41,7 @@ import { sanitizeEvent, sanitizeSnapshot } from "./session-sanitize.ts";
 // the global require before pi-plus-sdk's ESM bundle evaluates — static imports
 // of externals would be hoisted above the shim by the bundler.
 const sdk = await import("pi-plus-sdk");
+type SdkTask = import("pi-plus-sdk").Task;
 const {
 	createPermissionsExtension,
 	createPlusAgentSessionRuntime,
@@ -73,6 +75,8 @@ interface TabHandle {
 	runtime: AgentSessionRuntime | null;
 	/** Re-attached on every rebind; the old AgentSession object is dead. */
 	unsubscribe: (() => void) | null;
+	/** Pinned todo subscription (pi-plus-tasks store); re-attached on rebind. */
+	taskUnsub: (() => void) | null;
 	lastStreaming: boolean;
 	/** Last meta pushed, so refreshMeta() can skip unchanged payloads. */
 	lastMetaJson: string;
@@ -132,6 +136,7 @@ export class SessionHost {
 			agentDirWarning: error,
 			runtime: null,
 			unsubscribe: null,
+			taskUnsub: null,
 			lastStreaming: false,
 			lastMetaJson: "",
 			permission,
@@ -200,6 +205,12 @@ export class SessionHost {
 					tab.unsubscribe = session.subscribe((event: AgentSessionEvent) => this.onSessionEvent(tab, event));
 					tab.lastStreaming = session.isStreaming;
 					this.refreshMeta(tab, session);
+					// Pinned todo glance: list id is the session id (per-profile via
+					// the agent dir). Fires immediately with the current list, so
+					// every rebind (initial bind, /cd, clone, fork, profile switch)
+					// pushes the fresh list right away.
+					tab.taskUnsub?.();
+					tab.taskUnsub = sdk.subscribeToTasks(session.sessionId, (tasks) => this.pushTasks(tab, tasks));
 				},
 			});
 		} catch (err) {
@@ -293,6 +304,21 @@ export class SessionHost {
 		if (webContents && !webContents.isDestroyed()) {
 			webContents.send(IPC.push.sessionMeta, { tabId: tab.tabId, meta });
 		}
+	}
+
+	/** Push the pinned todo glance for a tab (pi-plus-tasks store subscription). */
+	private pushTasks(tab: TabHandle, tasks: SdkTask[]): void {
+		const webContents = this.getWebContents(tab.tabId);
+		if (!webContents || webContents.isDestroyed()) return;
+		const dtos: TaskDTO[] = tasks.map((t) => ({
+			id: t.id,
+			subject: t.subject,
+			status: t.status,
+			activeForm: t.activeForm,
+			owner: t.owner,
+			blockedBy: t.blockedBy,
+		}));
+		webContents.send(IPC.push.sessionTasks, { tabId: tab.tabId, tasks: dtos });
 	}
 
 	private onSessionEvent(tab: TabHandle, event: AgentSessionEvent): void {
@@ -547,6 +573,8 @@ export class SessionHost {
 	private async destroyTab(tab: TabHandle): Promise<void> {
 		tab.unsubscribe?.();
 		tab.unsubscribe = null;
+		tab.taskUnsub?.();
+		tab.taskUnsub = null;
 		const runtime = tab.runtime;
 		tab.runtime = null;
 		if (runtime) {
@@ -585,6 +613,7 @@ export class SessionHost {
 			agentDirWarning: error,
 			runtime: null,
 			unsubscribe: null,
+			taskUnsub: null,
 			lastStreaming: false,
 			lastMetaJson: "",
 		});

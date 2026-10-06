@@ -7,7 +7,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { WebContents } from "electron";
-import type { PlusUIDialogHandlers } from "pi-plus-sdk";
+import type { PlanReviewDialogChoice, PlusUIDialogHandlers } from "pi-plus-sdk";
 import { IPC, type DialogKind, type DialogRequestDTO } from "../shared/ipc-types.ts";
 
 const DIALOG_TIMEOUT_MS = 5 * 60 * 1000;
@@ -61,6 +61,11 @@ export class DialogBridge {
 			},
 			input: (title, placeholder) => this.enqueue<string | undefined>(tabId, "input", { title, placeholder }),
 			editor: (title, prefill) => this.enqueue<string | undefined>(tabId, "editor", { title, prefill }),
+			planReview: (plan) =>
+				this.enqueue<PlanReviewDialogChoice | undefined>(tabId, "planReview", {
+					title: "Plan ready for review",
+					plan,
+				}),
 			notify: (message, type) => {
 				const webContents = this.getWebContents(tabId);
 				if (webContents && !webContents.isDestroyed()) {

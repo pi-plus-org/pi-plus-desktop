@@ -127,6 +127,17 @@ export interface QueueDTO {
 	followUp: string[];
 }
 
+/** One agent task from the pi-plus-tasks store, as pushed for the pinned todo
+ *  glance (read-only; description/blocks stay main-side). */
+export interface TaskDTO {
+	id: string;
+	subject: string;
+	status: "pending" | "in_progress" | "completed";
+	activeForm?: string;
+	owner?: string;
+	blockedBy: string[];
+}
+
 export interface SessionListItemDTO {
 	path: string;
 	id: string;
@@ -248,7 +259,7 @@ export interface SessionStatusDTO {
 	isStreaming: boolean;
 }
 
-export type DialogKind = "select" | "confirm" | "input" | "editor";
+export type DialogKind = "select" | "confirm" | "input" | "editor" | "planReview";
 
 export interface DialogRequestDTO {
 	tabId: string;
@@ -262,10 +273,12 @@ export interface DialogRequestDTO {
 	/** input placeholder / editor prefill */
 	placeholder?: string;
 	prefill?: string;
+	/** planReview: plan markdown body */
+	plan?: string;
 }
 
 export interface MenuActionDTO {
-	action: "new-tab" | "close-active-tab" | "prev-tab" | "next-tab" | "toggle-sidebar" | "edit-externally" | "reload-history";
+	action: "new-tab" | "close-active-tab" | "prev-tab" | "next-tab" | "toggle-sidebar" | "toggle-filetree" | "edit-externally" | "reload-history";
 }
 
 /** One entry of a tab-cwd directory listing (for the composer's @-menu). */
@@ -296,6 +309,8 @@ export interface AppSettingsDTO {
 	editor: string;
 	/** History panel width in px (drag-resizable; see renderer Sidebar). */
 	sidebarWidth: number;
+	/** File tree panel width in px (drag-resizable; see renderer FileTree). */
+	filetreeWidth: number;
 	/** Permission mode new tabs start with (Settings → Permissions). */
 	defaultPermissionMode: PermissionMode;
 }
@@ -377,6 +392,7 @@ export const IPC = {
 		setEditor: "settings:setEditor",
 		listEditors: "settings:listEditors",
 		setSidebarWidth: "settings:setSidebarWidth",
+		setFiletreeWidth: "settings:setFiletreeWidth",
 		setDefaultPermissionMode: "settings:setDefaultPermissionMode",
 		openInEditor: "editor:open",
 		getCompaction: "settings:getCompaction",
@@ -384,7 +400,9 @@ export const IPC = {
 		pickDirectory: "dialog:pickDirectory",
 		pickFiles: "dialog:pickFiles",
 		readImage: "attachment:readImage",
+		saveAttachment: "attachment:save",
 		listDir: "fs:listDir",
+		openPath: "shell:openPath",
 		respondDialog: "dialog:respond",
 		respondAuthPrompt: "auth:respond",
 	},
@@ -392,6 +410,7 @@ export const IPC = {
 		sessionEvent: "session:event",
 		sessionStatus: "session:status",
 		sessionMeta: "session:meta",
+		sessionTasks: "session:tasks",
 		dialogRequest: "dialog:request",
 		dialogNotify: "dialog:notify",
 		profilesChanged: "profiles:changed",
@@ -481,6 +500,8 @@ export interface PiApi {
 	listEditors(): Promise<EditorOptionDTO[]>;
 	/** Persist the drag-resized history panel width. */
 	setSidebarWidth(width: number): Promise<void>;
+	/** Persist the drag-resized file tree panel width. */
+	setFiletreeWidth(width: number): Promise<void>;
 	/** Permission mode new tabs start with (Settings → Permissions). */
 	setDefaultPermissionMode(mode: PermissionMode): Promise<void>;
 	/**
@@ -499,17 +520,32 @@ export interface PiApi {
 	/** Base64 data URL for an image attachment preview; undefined when unreadable. */
 	readImage(path: string): Promise<string | undefined>;
 	/**
+	 * Persist dropped/pasted file bytes (a data URL) into the app's media-inbox
+	 * dir and resolve to the saved absolute path — clipboard and browser-drag
+	 * payloads carry no filesystem path, so they must land on disk before the
+	 * path-reference attachment pipeline can use them.
+	 */
+	saveAttachment(name: string, dataUrl: string): Promise<string>;
+	/** Real filesystem path of a File from a drop/paste event ("" when unknown, e.g. browser images). */
+	getPathForFile(file: File): string;
+	/**
 	 * List one directory of the tab's cwd tree ("" = cwd root), keeping names
 	 * that start with `prefix` (case-insensitive; dotfiles only when the prefix
 	 * starts with "."). Empty on escape/error.
 	 */
 	listDir(tabId: string, subpath: string, prefix?: string): Promise<ListDirResultDTO>;
+	/**
+	 * Open an absolute path in the system file explorer (Finder / Windows
+	 * Explorer / xdg-open). Resolves to "" on success, or the error message.
+	 */
+	openPath(path: string): Promise<string>;
 	respondDialog(requestId: string, value: unknown): void;
 	/** Answer a bridged login prompt; null rejects it as "Login cancelled". */
 	respondAuthPrompt(requestId: string, value: string | null): void;
 	onSessionEvent(cb: (msg: { tabId: string; event: SanitizedEvent }) => void): () => void;
 	onSessionStatus(cb: (status: SessionStatusDTO) => void): () => void;
 	onSessionMeta(cb: (msg: { tabId: string; meta: SessionMetaDTO }) => void): () => void;
+	onSessionTasks(cb: (msg: { tabId: string; tasks: TaskDTO[] }) => void): () => void;
 	onDialogRequest(cb: (req: DialogRequestDTO) => void): () => void;
 	onDialogNotify(cb: (note: { message: string; type?: string }) => void): () => void;
 	onProfilesChanged(cb: (data: ProfilesDataDTO) => void): () => void;

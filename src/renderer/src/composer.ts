@@ -4,6 +4,9 @@
  * chips, the "⋯" session-actions menu (rename/clone/cd/fork/rewind//init)
  * and the external-editor ✎ on the left, the round Send/Stop button on the
  * right (Enter to send, Shift+Enter newline, Esc stops while streaming).
+ * Files also arrive by drag & drop onto the box and by pasting images (and
+ * copied files) into the textarea; pathless payloads (clipboard images,
+ * browser drags) are persisted via `attachment:save` and attach by path.
  * An "@"-triggered file/folder picker menu rooted at the active tab's cwd
  * inserts an inline @path reference *and* adds an attachment chip; a
  * line-initial "/" opens the slash-command menu (extension commands, prompt
@@ -18,7 +21,7 @@
  * the TabState and restored on tab switch.
  */
 
-import { isImagePath } from "../../shared/attachments.ts";
+import { isImagePath, MAX_ATTACHMENTS } from "../../shared/attachments.ts";
 import type { ChatMessageDTO, CommandDTO, DirEntryDTO, ListDirResultDTO, PermissionMode, SkillDTO } from "../../shared/ipc-types.ts";
 import type { Dialogs } from "./dialogs.ts";
 import { thumbSrc } from "./image-thumb.ts";
@@ -26,6 +29,9 @@ import { formatTokens, store, type TabState } from "./store.ts";
 
 /** How far back from the caret to look for the "@" trigger. */
 const MAX_AT_TOKEN = 256;
+
+/** Renderer-side guard, kept in sync with the main-process inbox cap. */
+const MAX_DND_SAVE_BYTES = 25 * 1024 * 1024;
 
 /** Shift+Tab cycles forward through this order (the SDK's canonical order). */
 const PERMISSION_ORDER: PermissionMode[] = ["bypass", "acceptEdits", "plan"];
@@ -40,6 +46,15 @@ const PERMISSION_UI: Record<PermissionMode, { chip: string; hint: string }> = {
 function basename(path: string): string {
 	const parts = path.split(/[/\\]/);
 	return parts[parts.length - 1] || path;
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+	return new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = () => resolve(String(reader.result));
+		reader.onerror = () => reject(reader.error);
+		reader.readAsDataURL(file);
+	});
 }
 
 /** "provider/model-id" → "model-id" for the toolbar chip (full ref stays in the title). */
@@ -114,6 +129,7 @@ interface AtState {
 
 export class Composer {
 	private textarea: HTMLTextAreaElement;
+	private box: HTMLElement;
 	private button: HTMLButtonElement;
 	private attachButton: HTMLButtonElement;
 	private sessionMenuBtn: HTMLButtonElement;
@@ -254,9 +270,11 @@ export class Composer {
 		const box = document.createElement("div");
 		box.className = "composer-box";
 		box.append(this.textarea, controls);
+		this.box = box;
 		this.toolbar = this.buildToolbar();
 		this.toolbar.hidden = true;
 		root.append(this.attachmentsRow, this.atMenu, this.slashMenu, this.toolbar, box);
+		this.wireDropAndPaste();
 		window.addEventListener("keydown", (e) => {
 			if (e.key !== "Tab" || !e.shiftKey || e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
 			// Reverse-tab stays functional inside the extension dialogs' modals.
@@ -634,6 +652,88 @@ export class Composer {
 	}
 
 	// ------------------------------------------------------------------
+	// Paste + drag & drop (attachments)
+	// ------------------------------------------------------------------
+
+	/**
+	 * Clipboard images and dropped files arrive as File payloads with no
+	 * filesystem path. Real dragged paths come from webUtils; anything else is
+	 * persisted through `attachment:save` so it can join the path-reference
+	 * attachment pipeline. Drops outside the composer are swallowed so
+	 * Electron's default navigation can't whisk the window to the file.
+	 */
+	private wireDropAndPaste(): void {
+		this.textarea.addEventListener("paste", (e) => {
+			const files = [...(e.clipboardData?.files ?? [])];
+			if (files.length === 0) return; // plain-text paste flows normally
+			e.preventDefault();
+			if (!store.active) return;
+			for (const file of files) void this.attachPayload(file);
+		});
+
+		let dragDepth = 0;
+		this.box.addEventListener("dragenter", (e) => {
+			if (!e.dataTransfer?.types.includes("Files")) return;
+			e.preventDefault();
+			dragDepth++;
+			this.box.classList.add("composer-drop-active");
+		});
+		this.box.addEventListener("dragover", (e) => {
+			if (!e.dataTransfer?.types.includes("Files")) return;
+			e.preventDefault(); // required to allow the drop
+			e.dataTransfer.dropEffect = "copy";
+		});
+		this.box.addEventListener("dragleave", () => {
+			if (--dragDepth <= 0) {
+				dragDepth = 0;
+				this.box.classList.remove("composer-drop-active");
+			}
+		});
+		this.box.addEventListener("drop", (e) => {
+			if (!e.dataTransfer?.types.includes("Files")) return;
+			e.preventDefault();
+			dragDepth = 0;
+			this.box.classList.remove("composer-drop-active");
+			if (!store.active) {
+				this.dialogs.notify("Open a chat tab before attaching files.", "info");
+				return;
+			}
+			for (const file of [...e.dataTransfer.files]) void this.attachPayload(file);
+			this.focus();
+		});
+
+		document.addEventListener("dragover", (e) => {
+			if (e.dataTransfer?.types.includes("Files") && !this.box.contains(e.target as Node)) e.preventDefault();
+		});
+		document.addEventListener("drop", (e) => {
+			if (e.dataTransfer?.types.includes("Files") && !this.box.contains(e.target as Node)) e.preventDefault();
+		});
+	}
+
+	/** Attach one dropped/pasted File: its real path when known, else a saved copy. */
+	private async attachPayload(file: File): Promise<void> {
+		try {
+			const path = window.pi.getPathForFile(file);
+			if (path) {
+				this.addAttachment(path);
+				return;
+			}
+		} catch {
+			// No path (browser image, clipboard payload) — persist the bytes.
+		}
+		if (file.size > MAX_DND_SAVE_BYTES) {
+			this.dialogs.notify(`"${file.name}" is too large to attach (max ${Math.round(MAX_DND_SAVE_BYTES / (1024 * 1024))} MB).`, "error");
+			return;
+		}
+		try {
+			const dataUrl = await fileToDataUrl(file);
+			this.addAttachment(await window.pi.saveAttachment(file.name, dataUrl));
+		} catch (err) {
+			this.dialogs.notify(`Could not attach "${file.name}": ${String((err as Error).message ?? err)}`, "error");
+		}
+	}
+
+	// ------------------------------------------------------------------
 	// Attachments (paperclip + @-menu share the chip pipeline)
 	// ------------------------------------------------------------------
 
@@ -644,6 +744,10 @@ export class Composer {
 
 	private addAttachment(path: string, isFolder = false): void {
 		if (this.attachments.includes(path)) return;
+		if (this.attachments.length >= MAX_ATTACHMENTS) {
+			this.dialogs.notify(`Too many attachments (max ${MAX_ATTACHMENTS}).`, "error");
+			return;
+		}
 		this.attachments.push(path);
 		if (isFolder) this.folderPaths.add(path);
 		this.renderAttachments();

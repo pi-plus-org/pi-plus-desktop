@@ -8,11 +8,13 @@ import "../styles.css";
 import { ChatView } from "./chat-view.ts";
 import { Composer, type TabActions } from "./composer.ts";
 import { Dialogs } from "./dialogs.ts";
+import { clampFiletreeWidth, FileTree } from "./filetree.ts";
 import { NewChatForm } from "./new-chat.ts";
 import { clampSidebarWidth, Sidebar } from "./sidebar.ts";
 import { store, type TabState } from "./store.ts";
 import { TabsBar } from "./tabs.ts";
 import { installTooltip } from "./tooltip.ts";
+import { TodoStrip } from "./todo-strip.ts";
 
 const $ = <T extends HTMLElement>(selector: string): T => {
 	const node = document.querySelector<T>(selector);
@@ -98,7 +100,9 @@ async function resumeSession(item: SessionListItemDTO): Promise<void> {
 }
 
 let composerRef: Composer | null = null;
+let todoStripRef: TodoStrip | null = null;
 let sidebarRef: Sidebar | null = null;
+let fileTreeRef: FileTree | null = null;
 
 async function sendPrompt(text: string, attachments: string[] = [], mode?: "steer" | "followUp"): Promise<void> {
 	const tabId = store.activeTabId;
@@ -202,10 +206,15 @@ function init(): void {
 	// Drag-resized history width (CSS clamps 180–520px live in the Sidebar).
 	void window.pi
 		.getSettings()
-		.then((s) => document.documentElement.style.setProperty("--sidebar-w", `${clampSidebarWidth(s.sidebarWidth)}px`))
+		.then((s) => {
+			document.documentElement.style.setProperty("--sidebar-w", `${clampSidebarWidth(s.sidebarWidth)}px`);
+			document.documentElement.style.setProperty("--filetree-w", `${clampFiletreeWidth(s.filetreeWidth)}px`);
+		})
 		.catch(() => undefined);
 	const sidebar = new Sidebar($("#sidebar"), (item) => void resumeSession(item));
 	sidebarRef = sidebar;
+	const fileTree = new FileTree($("#filetree"));
+	fileTreeRef = fileTree;
 	const tabsBar = new TabsBar($("#tabbar"), (tab, profileName) => {
 		void (async () => {
 			// A profile switch is a session-replacing capability: the returned
@@ -229,6 +238,9 @@ function init(): void {
 	const composer = new Composer($("#composer"), (text, attachments, mode) => void sendPrompt(text, attachments, mode), dialogs);
 	composer.setActions(tabActions);
 	composerRef = composer;
+	// Read-only pinned todo glance above the status strip, stacked vertically.
+	const todoStrip = new TodoStrip($("#composer"));
+	todoStripRef = todoStrip;
 	const mainEl = $("#main");
 
 	// Blank launch state: the centered new-chat form replaces chat + composer
@@ -254,6 +266,8 @@ function init(): void {
 				syncEmptyState();
 				// History rows carry the live/active highlight.
 				sidebar.render();
+				// The file tree follows the active tab (and its cwd after /cd).
+				fileTree.sync();
 				break;
 			case "active":
 				tabsBar.render();
@@ -261,6 +275,8 @@ function init(): void {
 				composer.sync();
 				syncEmptyState();
 				sidebar.render();
+				fileTree.sync();
+				todoStrip.sync();
 				if (store.activeTabId) composer.focus();
 				break;
 			case "chat": {
@@ -268,6 +284,8 @@ function init(): void {
 				if (tab) chatView.refreshTools(tab);
 				// Finalized messages carry usage/cost — refresh the status strip.
 				if (event.tabId === store.activeTabId) composer.sync();
+				// Agent tool calls create/edit/delete files — refresh the tree.
+				if (event.tabId === store.activeTabId) fileTree.scheduleRefresh();
 				break;
 			}
 			case "stream": {
@@ -281,8 +299,13 @@ function init(): void {
 				composer.sync();
 				// meta keeps liveSessions (dots + active highlight) current.
 				sidebar.render();
+				// /cd and profile switches replace the session and its cwd.
+				fileTree.sync();
 				break;
 			}
+			case "tasks":
+				todoStrip.sync();
+				break;
 			case "history":
 				sidebar.scheduleRefresh();
 				break;
@@ -292,6 +315,7 @@ function init(): void {
 	window.pi.onSessionEvent(({ tabId, event }) => store.applyEvent(tabId, event));
 	window.pi.onSessionStatus(({ tabId, isStreaming }) => store.applyStatus(tabId, isStreaming));
 	window.pi.onSessionMeta(({ tabId, meta }) => store.applyMeta(tabId, meta));
+	window.pi.onSessionTasks(({ tabId, tasks }) => store.applyTasks(tabId, tasks));
 	window.pi.onDialogRequest((req) => dialogs.handleRequest(req));
 	window.pi.onDialogNotify(({ message, type }) => dialogs.notify(message, type));
 	window.pi.onProfilesChanged((data) => tabsBar.setProfiles(data));
@@ -314,6 +338,9 @@ function init(): void {
 			case "toggle-sidebar":
 				sidebarRef?.toggle();
 				break;
+			case "toggle-filetree":
+				fileTreeRef?.toggle();
+				break;
 			case "edit-externally":
 				void composerRef?.editExternally();
 				break;
@@ -327,13 +354,17 @@ function init(): void {
 		void closeTab((e as CustomEvent<{ tabId: string }>).detail.tabId);
 	}) as EventListener);
 	window.addEventListener("pi:new-tab", () => void newTab());
-	window.addEventListener("focus", () => void sidebar.refresh());
+	window.addEventListener("focus", () => {
+		void sidebar.refresh();
+		void fileTreeRef?.refresh();
+	});
 
 	// Launches start blank: no tabs, no dialogs. Chats begin from the
 	// new-chat form or File > New Chat (Cmd+N), which is where the folder
 	// picker lives.
 	void window.pi.listProfiles().then((data) => tabsBar.setProfiles(data));
 	void sidebar.refresh();
+	fileTree.sync(); // starts hidden: no tabs at launch
 	syncEmptyState();
 
 	// Debug/automation hook: lets external drivers (CDP smoke) replicate the

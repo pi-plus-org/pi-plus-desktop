@@ -46,6 +46,7 @@ interface LegacySettingsFile {
 	theme?: unknown;
 	editor?: unknown;
 	sidebarWidth?: unknown;
+	filetreeWidth?: unknown;
 	defaultPermissionMode?: unknown;
 }
 
@@ -55,13 +56,15 @@ export class AppSettings {
 	private _editor = "";
 	/** History panel width, drag-resized in the renderer (CSS clamps applied there). */
 	private _sidebarWidth = 260;
+	/** File tree panel width, drag-resized in the renderer (CSS clamps applied there). */
+	private _filetreeWidth = 240;
 	/** Permission mode new tabs start with (Settings → Permissions). */
 	private _defaultPermissionMode: PermissionMode = "bypass";
 
 	// Setters mark dirty; save() persists only the touched fields (per store)
 	// and clears the flags. load() writes the caches directly, so a fresh read
 	// is never re-persisted.
-	private dirty = { theme: false, editor: false, sidebarWidth: false, defaultPermissionMode: false };
+	private dirty = { theme: false, editor: false, sidebarWidth: false, filetreeWidth: false, defaultPermissionMode: false };
 	private editorManager: SettingsManager | null = null;
 
 	get theme(): ThemeMode {
@@ -94,6 +97,16 @@ export class AppSettings {
 		}
 	}
 
+	get filetreeWidth(): number {
+		return this._filetreeWidth;
+	}
+	set filetreeWidth(value: number) {
+		if (value !== this._filetreeWidth) {
+			this._filetreeWidth = value;
+			this.dirty.filetreeWidth = true;
+		}
+	}
+
 	get defaultPermissionMode(): PermissionMode {
 		return this._defaultPermissionMode;
 	}
@@ -121,6 +134,7 @@ export class AppSettings {
 		const block = readPiPlusSettings();
 		this._theme = asTheme(block.desktopTheme) ?? this._theme;
 		this._sidebarWidth = asWidth(block.sidebarWidth) ?? this._sidebarWidth;
+		this._filetreeWidth = asWidth(block.filetreeWidth) ?? this._filetreeWidth;
 		this._defaultPermissionMode = asPermissionMode(block.defaultPermissionMode) ?? this._defaultPermissionMode;
 		// Raw persisted value (no $VISUAL/$EDITOR fallback) — resolveEditorCommand
 		// in editor.ts applies the fallback at spawn time, as before.
@@ -133,6 +147,7 @@ export class AppSettings {
 		const patch: Record<string, unknown> = {};
 		if (this.dirty.theme) patch.desktopTheme = this._theme;
 		if (this.dirty.sidebarWidth) patch.sidebarWidth = this._sidebarWidth;
+		if (this.dirty.filetreeWidth) patch.filetreeWidth = this._filetreeWidth;
 		if (this.dirty.defaultPermissionMode) patch.defaultPermissionMode = this._defaultPermissionMode;
 		if (Object.keys(patch).length > 0) {
 			// Sync + locked merge in the SDK store; a throw keeps the flags dirty
@@ -140,6 +155,7 @@ export class AppSettings {
 			updatePiPlusSettings(patch);
 			this.dirty.theme = false;
 			this.dirty.sidebarWidth = false;
+			this.dirty.filetreeWidth = false;
 			this.dirty.defaultPermissionMode = false;
 		}
 		if (this.dirty.editor) {
@@ -180,12 +196,15 @@ export class AppSettings {
 		if (legacyTheme !== undefined && asTheme(block.desktopTheme) === undefined) patch.desktopTheme = legacyTheme;
 		const legacyWidth = asWidth(legacy.sidebarWidth);
 		if (legacyWidth !== undefined && asWidth(block.sidebarWidth) === undefined) patch.sidebarWidth = legacyWidth;
+		const legacyFiletreeWidth = asWidth(legacy.filetreeWidth);
+		if (legacyFiletreeWidth !== undefined && asWidth(block.filetreeWidth) === undefined) patch.filetreeWidth = legacyFiletreeWidth;
 		const legacyMode = asPermissionMode(legacy.defaultPermissionMode);
 		if (legacyMode !== undefined && asPermissionMode(block.defaultPermissionMode) === undefined) patch.defaultPermissionMode = legacyMode;
 		if (Object.keys(patch).length > 0) {
 			updatePiPlusSettings(patch);
 			this._theme = patch.desktopTheme as ThemeMode ?? this._theme;
 			this._sidebarWidth = patch.sidebarWidth as number ?? this._sidebarWidth;
+			this._filetreeWidth = patch.filetreeWidth as number ?? this._filetreeWidth;
 			this._defaultPermissionMode = patch.defaultPermissionMode as PermissionMode ?? this._defaultPermissionMode;
 		}
 		const manager = this.editors();

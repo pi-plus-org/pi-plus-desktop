@@ -7,6 +7,7 @@
  */
 
 import type { DialogRequestDTO } from "../../shared/ipc-types.ts";
+import { renderMarkdownToHtml } from "./markdown.ts";
 
 function el(tag: string, className?: string, text?: string): HTMLElement {
 	const node = document.createElement(tag);
@@ -152,6 +153,26 @@ export class Dialogs {
 				box.append(buttons);
 				break;
 			}
+			case "planReview": {
+				box.classList.add("dialog-box-wide");
+				const body = el("div", "dialog-plan-body");
+				// The plan is model output — sanitize via the shared markdown pipeline.
+				body.innerHTML = renderMarkdownToHtml(request.plan ?? "");
+				const buttons = el("div", "dialog-buttons");
+				const approveEdits = el("button", "dialog-btn dialog-btn-primary", "Approve & auto-accept edits");
+				approveEdits.title = "Run the plan with permission mode accept-edits (file edits unattended)";
+				approveEdits.addEventListener("click", () => finish("approveAcceptEdits"));
+				const approveBypass = el("button", "dialog-btn", "Approve & bypass permissions");
+				approveBypass.title = "Run the plan fully automatically (permission mode bypass)";
+				approveBypass.addEventListener("click", () => finish("approveBypass"));
+				const edit = el("button", "dialog-btn", "Edit plan");
+				edit.addEventListener("click", () => finish("edit"));
+				const stay = el("button", "dialog-btn", "Stay in plan mode");
+				stay.addEventListener("click", () => finish("stay"));
+				buttons.append(approveEdits, approveBypass, edit, stay);
+				box.append(body, buttons);
+				break;
+			}
 			case "input":
 			case "editor": {
 				const input =
@@ -192,12 +213,17 @@ export class Dialogs {
 	}
 
 	notify(message: string, type?: string, durationMs = 4000): void {
-		const toast = el("div", `toast toast-${type ?? "info"}`, message);
-		document.body.append(toast);
-		setTimeout(() => toast.classList.add("toast-show"), 10);
-		setTimeout(() => {
-			toast.classList.remove("toast-show");
-			setTimeout(() => toast.remove(), 300);
-		}, durationMs);
+		notify(message, type, durationMs);
 	}
+}
+
+/** Transient toast (top-center); standalone so any module can notify without a Dialogs instance. */
+export function notify(message: string, type?: string, durationMs = 4000): void {
+	const toast = el("div", `toast toast-${type ?? "info"}`, message);
+	document.body.append(toast);
+	setTimeout(() => toast.classList.add("toast-show"), 10);
+	setTimeout(() => {
+		toast.classList.remove("toast-show");
+		setTimeout(() => toast.remove(), 300);
+	}, durationMs);
 }

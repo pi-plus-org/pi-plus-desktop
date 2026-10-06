@@ -3,7 +3,7 @@
  * Sandboxed (CJS, electron-only imports) — the renderer has no Node access.
  */
 
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
 import { IPC, type PiApi } from "../shared/ipc-types.ts";
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -56,6 +56,7 @@ const api: PiApi = {
 	setEditor: (command) => ipcRenderer.invoke(IPC.invoke.setEditor, command),
 	listEditors: () => ipcRenderer.invoke(IPC.invoke.listEditors),
 	setSidebarWidth: (width) => ipcRenderer.invoke(IPC.invoke.setSidebarWidth, width),
+	setFiletreeWidth: (width) => ipcRenderer.invoke(IPC.invoke.setFiletreeWidth, width),
 	setDefaultPermissionMode: (mode) => ipcRenderer.invoke(IPC.invoke.setDefaultPermissionMode, mode),
 	openInEditor: (text) => ipcRenderer.invoke(IPC.invoke.openInEditor, text),
 	getCompactionSettings: () => ipcRenderer.invoke(IPC.invoke.getCompaction),
@@ -63,12 +64,22 @@ const api: PiApi = {
 	pickDirectory: () => ipcRenderer.invoke(IPC.invoke.pickDirectory),
 	pickFiles: () => ipcRenderer.invoke(IPC.invoke.pickFiles),
 	readImage: (path) => ipcRenderer.invoke(IPC.invoke.readImage, path),
+	saveAttachment: (name, dataUrl) => ipcRenderer.invoke(IPC.invoke.saveAttachment, name, dataUrl),
+	getPathForFile: (file) => {
+		try {
+			return webUtils.getPathForFile(file);
+		} catch {
+			return "";
+		}
+	},
 	listDir: (tabId, subpath, prefix) => ipcRenderer.invoke(IPC.invoke.listDir, tabId, subpath, prefix),
+	openPath: (path) => ipcRenderer.invoke(IPC.invoke.openPath, path),
 	respondDialog: (requestId, value) => ipcRenderer.send(IPC.invoke.respondDialog, requestId, value),
 	respondAuthPrompt: (requestId, value) => ipcRenderer.send(IPC.invoke.respondAuthPrompt, requestId, value),
 	onSessionEvent: (cb) => subscribe(IPC.push.sessionEvent, cb),
 	onSessionStatus: (cb) => subscribe(IPC.push.sessionStatus, cb),
 	onSessionMeta: (cb) => subscribe(IPC.push.sessionMeta, cb),
+	onSessionTasks: (cb) => subscribe(IPC.push.sessionTasks, cb),
 	onDialogRequest: (cb) => subscribe(IPC.push.dialogRequest, cb),
 	onDialogNotify: (cb) => subscribe(IPC.push.dialogNotify, cb),
 	onProfilesChanged: (cb) => subscribe(IPC.push.profilesChanged, cb),
