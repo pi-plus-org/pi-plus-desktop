@@ -4,7 +4,7 @@
  * One directory level is fetched at a time through the same fs:listDir IPC
  * as the composer's @-menu (it clamps listings to the tab's cwd, resolves
  * symlinked dirs, and caps huge listings), so no new main-process surface is
- * needed. The header ⟳ re-lists every expanded directory; ⌘/Ctrl+⌥/Alt+B
+ * needed. The header ⌂ opens the cwd in Finder/Explorer, ⟳ re-lists every expanded directory; ⌘/Ctrl+⌥/Alt+B
  * (View → Toggle File Tree) collapses the panel to a floating chip, like the
  * history sidebar's ⌘B. The tree re-syncs when the active tab or its cwd
  * changes (tab switch, /cd, resume) and debounce-refreshes on chat activity
@@ -161,7 +161,7 @@ export class FileTree {
 			dirs.map((rel) =>
 				window.pi
 					.listDir(tab.tabId, rel)
-					.then((r) => ({ rel, entries: r.entries.filter((e) => e.name !== ".."), truncated: r.truncated }))
+					.then((r) => ({ rel, entries: r.entries, truncated: r.truncated }))
 					.catch(() => ({ rel, entries: [] as DirEntryDTO[], truncated: false })),
 			),
 		);
@@ -216,7 +216,7 @@ export class FileTree {
 		const tab = store.active;
 		const header = el("div", "sidebar-header");
 		header.append(el("span", "sidebar-header-title", "Files"));
-		const openBtn = el("button", "sidebar-refresh", "📂");
+		const openBtn = el("button", "sidebar-refresh", "⌂");
 		openBtn.title = "Open folder in system file explorer";
 		openBtn.addEventListener("click", () => {
 			const cwd = store.active?.cwd;

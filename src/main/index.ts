@@ -297,10 +297,6 @@ function registerIpc(): void {
 			entries.sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) : a.isDir ? -1 : 1));
 			const truncated = entries.length > MAX_LIST_DIR_ENTRIES;
 			const visible = truncated ? entries.slice(0, MAX_LIST_DIR_ENTRIES) : entries;
-			if (resolved !== cwd) {
-				const parentRel = path.relative(cwd, path.dirname(resolved)).split(path.sep).join("/");
-				visible.unshift({ name: "..", relPath: parentRel, isDir: true });
-			}
 			return { entries: visible, truncated };
 		} catch {
 			return empty; // not a dir / permission / deleted mid-typing

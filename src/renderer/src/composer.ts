@@ -886,7 +886,7 @@ export class Composer {
 		const at = this.at;
 		if (!at) return;
 		at.loading = false;
-		// Main already applied the prefix filter (and kept the ".." row).
+		// Main already applied the prefix filter.
 		at.entries = res.entries;
 		at.truncated = res.truncated;
 		// Prose like "hi @bob there": an unmatched token that contains spaces is
@@ -907,13 +907,13 @@ export class Composer {
 			row.className = i === at.active ? "at-row at-row-active" : "at-row";
 			const icon = document.createElement("span");
 			icon.className = "at-row-icon";
-			icon.textContent = entry.name === ".." ? "↩" : entry.isDir ? "📁" : "📄";
+			icon.textContent = entry.isDir ? "📁" : "📄";
 			const name = document.createElement("span");
 			name.className = "at-row-name";
 			name.textContent = entry.name;
 			name.title = entry.relPath || at.dir;
 			row.append(icon, name);
-			if (entry.isDir && entry.name !== "..") {
+			if (entry.isDir) {
 				// Enter navigates into dirs; attaching one is the paperclip button.
 				const attach = document.createElement("button");
 				attach.className = "at-row-attach";
@@ -990,9 +990,7 @@ export class Composer {
 	}
 
 	private navigateAt(entry: DirEntryDTO): void {
-		// ".." carries the parent's relPath ("" when the parent is the cwd root).
-		const nextRaw = entry.name === ".." ? (entry.relPath ? `${entry.relPath}/` : "") : `${entry.relPath}/`;
-		this.replaceAtToken(`@${nextRaw}`);
+		this.replaceAtToken(`@${entry.relPath}/`);
 	}
 
 	private attachFromAt(entry: DirEntryDTO): void {
