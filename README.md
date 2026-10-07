@@ -12,7 +12,7 @@
 
 1. **Download** the package for your platform from the [GitHub releases page](https://github.com/pi-plus-org/pi-plus-desktop/releases/latest):
    - **macOS**: `Pi+-<version>.dmg` — open it and drag **Pi+** into `/Applications`. The build is ad-hoc signed and not notarized, so on first launch use **right-click → Open** (or allow it under System Settings → Privacy & Security).
-   - **Windows (x64)**: `Pi+-<version>-win-x64.zip` — a portable install: extract anywhere and run `pi-plus.exe`.
+   - **Windows (x64)**: `Pi+-<version>-win-x64.msi` — run the installer (accept the UAC prompt): it installs to `C:\Program Files\Pi+` and adds a Start-menu shortcut; uninstall via Settings → Apps. New versions replace the old one in place. The build is unsigned, so SmartScreen may intervene on first run — **More info → Run anyway**.
 2. **Authenticate** — pick any of: add a provider token under Settings → Profiles, log in with the pi CLI, or export an API key. Pi+ uses the same `~/.pi/agent` directory as the pi CLI and creates it on first use; an existing setup (and its sessions and profiles) is picked up as-is. On Windows that's `%USERPROFILE%\.pi\agent`.
 
 ## Usage
@@ -149,13 +149,14 @@ Defaults to the `kimi-coding` provider. Exits with `SKIP` when no model/auth is 
 ### App icon
 
 The icon is authored as `assets/icon.svg` (π + amber plus on a dark rounded square).
-Rasterize and rebuild the `.icns` after editing it:
+Rasterize and rebuild the platform icon files after editing it:
 
 ```sh
-npm run icon   # renders assets/icon.svg → assets/icon.png via headless Electron
+npm run icon   # renders assets/icon.svg → assets/icon.png via headless Electron,
+               # then packs assets/icon.ico (16/32/48/256 px, for the Windows MSI)
 ```
 
-Then regenerate `assets/icon.icns` with `sips`/`iconutil` (see the loop in git history or `devops/scripts/pack-macos.sh`, which consumes the `.icns`).
+Then regenerate `assets/icon.icns` with `sips`/`iconutil` (see the loop in git history or `devops/scripts/pack-macos.sh`, which consumes the `.icns`). The `.ico` is consumed by `devops/scripts/win-wxs.mjs` for the MSI's Add/Remove-Programs entry and Start-menu shortcut.
 
 The README hero image is `assets/demo.gif`: recorded from a real session, cropped to the window and encoded with ffmpeg (`crop → scale=960 → fps=15 → palettegen/paletteuse`). To recreate, record the app window region and cut the segment from prompt-typing through the completed reply.
 
@@ -180,6 +181,16 @@ To install into `/Applications`, `.claude/scripts/deploy-pack.sh` builds the pac
 ```
 
 The dev install assembles `Pi+.app` from this working tree with `Resources/app/{dist,node_modules}` symlinked back into the repo — relaunching always runs the freshest `dist/` and `../pi` SDK builds, but the checkout (and `../pi`) must stay in place. The DMG path builds a fresh pack via `devops/scripts/pack-macos.sh` (which refuses while `file:` dependencies are present), mounts it read-only, quits a running instance, `ditto`s `Pi+.app` into `/Applications`, verifies the code signature, and deletes the DMG afterwards (unless `--keep`). For a distributable DMG, run `.claude/scripts/unlink-pi-local.sh` first (registry spec restored), pack, then `sync-pi-local.sh` to switch back.
+
+### Packaging (Windows)
+
+`devops/scripts/pack-windows.sh` cross-packs a per-machine x64 MSI on macOS (no Windows host or wine). It needs the [msitools](https://github.com/GNOME/msitools) linker: `brew install msitools`.
+
+```sh
+devops/scripts/pack-windows.sh        # → release/Pi+-<version>-win-x64.msi
+```
+
+It fetches and SHA256-verifies the official Electron win32-x64 distribution (cached in `.pack-cache/`), assembles the same app payload as the macOS pack (`npm ci --omit=dev --os=win32 --cpu=x64 --ignore-scripts`, Windows esbuild binaries verified), prunes darwin-only leftovers (`.bin` shims, AppleDouble files), then `devops/scripts/win-wxs.mjs` harvests the staged tree into one WiX document — a component per directory with deterministic GUIDs — and `wixl` links it into an MSI with a single embedded MSZIP cabinet. Installing requires elevation; a new version replaces the previous install (fixed UpgradeCode, `MajorUpgrade`), and uninstall goes through Settings → Apps. Unsigned like the DMG: SmartScreen may show a "More info → Run anyway" prompt on first run. `devops/scripts/publish-github.sh` runs both packs and attaches the `.dmg` + `.msi` to the GitHub release.
 
 ## Notes
 

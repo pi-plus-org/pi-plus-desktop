@@ -10,7 +10,7 @@
 		"start": "electron .",
 		"typecheck": "tsc --noEmit",
 		"smoke": "node scripts/smoke.mjs",
-		"icon": "electron scripts/make-icon.mjs"
+		"icon": "electron scripts/make-icon.mjs && node scripts/make-ico.mjs"
 	},
 	"dependencies": {
 		"dompurify": "^3.2.4",

@@ -148,5 +148,8 @@ release/
 # Downloaded Electron win32 distribution cache (devops/scripts/pack-windows.sh)
 .pack-cache/
 
-# Local build/dev + ad-hoc SDK repro scripts (not product code)
+# Local build/dev + ad-hoc SDK repro scripts (not product code). A bare
+# `scripts/` matches any dir named "scripts", so re-include the tracked
+# devops/ packaging scripts.
 scripts/
+!devops/scripts/

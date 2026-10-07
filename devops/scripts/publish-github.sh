@@ -1,5 +1,5 @@
 #!/bin/bash
-# Publishes pi-plus-desktop installation packs (macOS DMG + Windows zip) as a
+# Publishes pi-plus-desktop installation packs (macOS DMG + Windows MSI) as a
 # GitHub release, bumping the package version first and committing the bump
 # after a successful publish.
 #
@@ -20,7 +20,7 @@
 #   2. npm version <bump> --no-git-tag-version (working tree only; skipped
 #      for keep).
 #   3. pack-macos.sh + pack-windows.sh → release/Pi+-<version>.dmg and
-#      release/Pi+-<version>-win-x64.zip.
+#      release/Pi+-<version>-win-x64.msi.
 #   4. Push HEAD if the remote lacks it (gh tags the target server-side, so
 #      the commit must exist there), then gh release create v<version> with
 #      both artifacts + auto-generated notes.
@@ -132,15 +132,15 @@ bash devops/scripts/pack-macos.sh
 bash devops/scripts/pack-windows.sh
 
 DMG="$RELEASE_DIR/$APP_NAME-$VERSION.dmg"
-ZIP="$RELEASE_DIR/$APP_NAME-$VERSION-win-x64.zip"
-for artifact in "$DMG" "$ZIP"; do
+MSI="$RELEASE_DIR/$APP_NAME-$VERSION-win-x64.msi"
+for artifact in "$DMG" "$MSI"; do
 	[ -f "$artifact" ] || { echo "[publish] expected artifact missing: $artifact" >&2; exit 1; }
 done
 
 if [ "$DRY_RUN" -eq 1 ]; then
 	echo "[publish] dry-run done; artifacts:"
 	echo "  $DMG"
-	echo "  $ZIP"
+	echo "  $MSI"
 	echo "[publish] (working tree left with build outputs only — nothing published or committed)"
 	exit 0
 fi
@@ -156,7 +156,7 @@ if [ "$BRANCH" = "HEAD" ] || ! git merge-base --is-ancestor HEAD "origin/$BRANCH
 fi
 
 echo "[publish] creating GitHub release v${VERSION}…"
-gh release create "v$VERSION" "$DMG" "$ZIP" \
+gh release create "v$VERSION" "$DMG" "$MSI" \
 	--title "$APP_NAME $VERSION" \
 	--generate-notes \
 	--target "$(git rev-parse HEAD)"

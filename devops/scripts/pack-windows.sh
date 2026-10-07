@@ -1,18 +1,23 @@
 #!/bin/bash
-# Packs pi-plus-desktop into a Windows x64 installation zip, cross-packed on
-# macOS (this dev machine) — no Windows host, wine, or NSIS required.
+# Packs pi-plus-desktop into a per-machine Windows x64 MSI installer,
+# cross-packed on macOS (this dev machine) — no Windows host or wine required.
+# Needs the msitools linker: `brew install msitools` (provides wixl/msidump).
 #
 # Usage:
-#   devops/scripts/pack-windows.sh            # build + pack → release/Pi+-<version>-win-x64.zip
+#   devops/scripts/pack-windows.sh            # build + pack → release/Pi+-<version>-win-x64.msi
 #   APP_NAME="Pi+ Desktop" devops/scripts/pack-windows.sh
 #
 # Output:
-#   release/<AppName>-<version>-win-x64.zip   (extract anywhere, run pi-plus.exe)
+#   release/<AppName>-<version>-win-x64.msi   (double-click: UAC → installs to
+#   C:\Program Files\<AppName>, Start-menu shortcut, uninstall via Settings →
+#   Apps; MajorUpgrade replaces previous versions in place)
 #
-# The zip is a portable install: it embeds the official Electron win32-x64
-# distribution plus the app payload under resources/app/ (package.json, dist/,
-# and a production node_modules tree resolved with --os=win32 --cpu=x64 so
-# platform-specific optional deps, e.g. esbuild's binary, are the Windows ones).
+# The MSI embeds the official Electron win32-x64 distribution plus the app
+# payload under resources/app/ (package.json, dist/, and a production
+# node_modules tree resolved with --os=win32 --cpu=x64 so platform-specific
+# optional deps, e.g. esbuild's binary, are the Windows ones) as one compressed
+# embedded cabinet, via win-wxs.mjs harvesting the staged tree + `wixl`.
+# Unsigned (like the old zip): SmartScreen shows "More info → Run anyway".
 #
 # Production pack: dependencies must carry registry specs (see pack-macos.sh)
 # — refuses to pack while package.json carries file: (symlinked) deps.
@@ -22,8 +27,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 APP_NAME="${APP_NAME:-Pi+}"
 EXE_NAME="pi-plus" # keep the executable plus-free for shell safety
 VERSION="$(node -p "require('$ROOT/package.json').version")"
+MSI_VERSION="${VERSION%%[-+]*}" # semver prerelease/build tags are not MSI versions
 RELEASE_DIR="$ROOT/release"
 STAGE="$ROOT/dist/pack-win"
+WXS="$STAGE/pi-plus.wxs" # outside $APP_DIR so the harvest never includes it
 CACHE_DIR="$ROOT/.pack-cache"
 
 EV="$(cd "$ROOT" && node -p "require('electron/package.json').version")"
@@ -34,14 +41,30 @@ cd "$ROOT"
 
 echo "[pack-win] version $VERSION, app '$APP_NAME', electron $EV"
 
-# 0. Symlink guard (fail fast before building anything): no file: deps allowed
-#    in a distributable pack.
+# 0. Guards (fail fast before building anything): no file: deps allowed in a
+#    distributable pack; wixl must be installed; the MSI icon must exist and be
+#    at least as new as its icon.png source.
 FILE_DEPS="$(node -p "const d=require('$ROOT/package.json').dependencies||{};Object.entries(d).filter(([,s])=>String(s).startsWith('file:')).map(([n])=>n).join(' ')")"
 if [ -n "$FILE_DEPS" ]; then
 	echo "[pack-win] refusing to pack: file: (symlinked) dependencies in package.json: $FILE_DEPS" >&2
 	echo "[pack-win] production packs need registry specs, e.g.: npm install --save pi-plus-sdk@^0.1.4" >&2
 	exit 1
 fi
+if ! command -v wixl >/dev/null 2>&1; then
+	echo "[pack-win] refusing to pack: wixl (msitools) not found; install it with: brew install msitools" >&2
+	exit 1
+fi
+if [ ! -f "$ROOT/assets/icon.ico" ] || [ "$ROOT/assets/icon.png" -nt "$ROOT/assets/icon.ico" ]; then
+	echo "[pack-win] refusing to pack: assets/icon.ico missing or older than assets/icon.png; regenerate with: npm run icon" >&2
+	exit 1
+fi
+case "$MSI_VERSION" in
+	*.*.*) ;;
+	*)
+		echo "[pack-win] refusing to pack: version '$VERSION' does not reduce to a numeric major.minor.build" >&2
+		exit 1
+		;;
+esac
 
 # 1. Production bundles (esbuild), copies assets into dist/. Same bundles the
 #    macOS pack uses — the JS is platform-neutral.
@@ -90,7 +113,7 @@ echo "[pack-win] installing production dependencies for win32-x64 (npm ci --omit
 	npm ci --omit=dev --no-audit --no-fund --loglevel=error --ignore-scripts --os=win32 --cpu=x64
 )
 # Backstop for the step-0 guard: any symlinked package in the payload would
-# dangle outside this zip.
+# dangle outside this package.
 LINKS="$(find "$APP_RES/node_modules" -maxdepth 1 -type l ! -name .bin | head -5)"
 if [ -n "$LINKS" ]; then
 	echo "[pack-win] refusing to pack: symlinked packages in the app payload:" >&2
@@ -130,17 +153,36 @@ if (bad.length) {
 }
 ' "$APP_RES"
 
-# 5. Zip the folder into release/. ditto keeps the parent directory name so
-#    extracting produces a single "Pi+/" folder.
-echo "[pack-win] creating zip…"
-mkdir -p "$RELEASE_DIR"
-ZIP="$RELEASE_DIR/$APP_NAME-$VERSION-win-x64.zip"
-rm -f "$ZIP"
-ditto -c -k --keepParent --norsrc --noextattr "$APP_DIR" "$ZIP"
+# 5. Payload hygiene for the MSI tree: drop the darwin-built node_modules/.bin
+#    shims (symlinks npm created at resolve time — dead weight on Windows, and
+#    the packaged app never resolves through them), prune AppleDouble junk from
+#    ditto/cp, then refuse on any symlink still in the tree (the old zip
+#    tolerated them; an MSI component would install a broken file).
+echo "[pack-win] cleaning payload (prune .bin dirs and AppleDouble files)…"
+find "$APP_DIR" -type d -name .bin -prune -exec rm -rf {} +
+find "$APP_DIR" \( -name '._*' -o -name .DS_Store \) -delete
+LINKS_ALL="$(find "$APP_DIR" -type l | head -5)"
+if [ -n "$LINKS_ALL" ]; then
+	echo "[pack-win] refusing to pack: symlinked files in the staged tree:" >&2
+	echo "$LINKS_ALL" | sed 's/^/[pack-win]   /' >&2
+	exit 1
+fi
 
-# 6. Drop the staging folder so the zip is the only artifact.
+# 6. Harvest the staged tree into a WiX document (win-wxs.mjs) and link the
+#    compressed MSI. wixl reads every File Source from disk at link time, so
+#    staging must outlive this step; the cab is embedded (MediaTemplate).
+echo "[pack-win] generating wxs + linking MSI…"
+node devops/scripts/win-wxs.mjs \
+	--stage "$APP_DIR" --out "$WXS" --icon "$ROOT/assets/icon.ico" \
+	--name "$APP_NAME" --msi-version "$MSI_VERSION" --exe "$EXE_NAME.exe"
+mkdir -p "$RELEASE_DIR"
+MSI="$RELEASE_DIR/$APP_NAME-$VERSION-win-x64.msi"
+rm -f "$MSI"
+wixl -a x64 -o "$MSI" "$WXS"
+
+# 7. Drop the staging folder so the MSI is the only artifact.
 rm -rf "$STAGE"
 
 echo "[pack-win] done:"
-echo "  $ZIP"
-du -sh "$ZIP" | awk '{print "  size: " $1}'
+echo "  $MSI"
+du -sh "$MSI" | awk '{print "  size: " $1}'
