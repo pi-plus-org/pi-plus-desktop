@@ -1,7 +1,7 @@
 <div align="center">
   <img src="assets/icon.png" width="128" alt="Pi+ icon" />
   <h1>pi-plus-desktop</h1>
-  <p>Desktop app for <a href="https://github.com/earendil-works/pi">pi-plus</a> — multi-tab AI agent sessions with profile management, built on Electron and embedding <code>pi-plus-sdk</code> directly in the main process (no CLI subprocess).</p>
+  <p>Desktop app for <a href="https://github.com/pi-plus-org/pi-plus">pi-plus</a> — multi-tab AI agent sessions with profile management, built on Electron and embedding <code>pi-plus-sdk</code> directly in the main process (no CLI subprocess).</p>
   <p>
     <a href="https://github.com/pi-plus-org/pi-plus-desktop/releases/latest"><img src="https://img.shields.io/github/v/release/pi-plus-org/pi-plus-desktop?label=release" alt="Latest release" /></a>
   </p>
