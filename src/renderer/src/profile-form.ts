@@ -20,12 +20,26 @@ function el(tag: string, className?: string, text?: string): HTMLElement {
 	return node;
 }
 
+/** Curated pi provider ids — keep in sync with pi-hub's PI_PROVIDERS. Ids
+ *  missing here (custom models.json providers, or ids newer than this
+ *  build) are handled by a per-profile fallback option below. */
 const PROVIDERS = [
-	"anthropic", "openai", "google", "deepseek", "openrouter", "moonshotai", "moonshotai-cn",
+	"anthropic", "ant-ling", "openai", "google", "deepseek", "openrouter", "moonshotai", "moonshotai-cn",
 	"kimi-coding", "zai", "zai-coding-cn", "xai", "groq", "mistral", "minimax", "minimax-cn",
-	"qwen-token-plan", "xiaomi", "nvidia", "cerebras", "fireworks", "together", "amazon-bedrock",
-	"azure-openai-responses", "cloudflare-ai-gateway", "huggingface", "opencode", "vercel-ai-gateway",
+	"qwen-token-plan", "qwen-token-plan-intl", "qwen-token-plan-individual", "qwen-token-plan-cn",
+	"xiaomi", "xiaomi-cn", "xiaomi-token-plan-cn", "xiaomi-token-plan-ams", "xiaomi-token-plan-sgp",
+	"nvidia", "cerebras", "fireworks", "together", "baseten", "radius", "amazon-bedrock",
+	"azure-openai-responses", "cloudflare-ai-gateway", "cloudflare-workers-ai", "huggingface",
+	"opencode", "opencode-go", "vercel-ai-gateway",
 ];
+
+/**
+ * Masked stand-in prefilled into the API key field when the profile already
+ * stores a token. The secret itself never crosses IPC (the DTO carries
+ * hasToken only); on save this exact value means "keep the stored token".
+ * Typing anything else (or 'clear') replaces / removes it.
+ */
+const MASKED_TOKEN = "••••••••••••";
 
 /** Parsed model list; rejects the >3 case the SDK's addProfileModel enforces. */
 function parseModels(raw: string, errorRow: HTMLElement): string[] | null {
@@ -143,7 +157,15 @@ export class ProfileForm {
 		const providerInput = el("select", "form-input") as HTMLSelectElement;
 		providerInput.append(new Option("(inherit default)", ""));
 		for (const p of PROVIDERS) providerInput.append(new Option(p, p));
-		providerInput.value = opts.existing?.profile.provider ?? "";
+		const existingProvider = opts.existing?.profile.provider;
+		// A stored provider outside PROVIDERS (custom models.json provider, or an
+		// id newer than this build) still needs an option: a <select> whose value
+		// matches no option falls back to the first entry, so the field would look
+		// empty and saving would silently drop the provider.
+		if (existingProvider && ![...providerInput.options].some((o) => o.value === existingProvider)) {
+			providerInput.append(new Option(`${existingProvider} (custom)`, existingProvider));
+		}
+		providerInput.value = existingProvider ?? "";
 		providerRow.append(providerInput);
 		box.append(providerRow);
 
@@ -168,6 +190,16 @@ export class ProfileForm {
 		const tokenInput = el("input", "form-input") as HTMLInputElement;
 		tokenInput.type = "password";
 		tokenInput.placeholder = opts.existing?.profile.hasToken ? "(stored — type to replace, 'clear' to remove)" : "API key (optional)";
+		if (opts.existing?.profile.hasToken) {
+			// The secret never crosses IPC, so the field shows a masked sentinel
+			// (kept on save) instead of looking empty; focusing selects it so
+			// typing replaces it wholesale.
+			tokenInput.value = MASKED_TOKEN;
+			tokenInput.addEventListener("focus", () => {
+				if (tokenInput.value === MASKED_TOKEN) tokenInput.select();
+			});
+			manualCol.append(el("div", "form-login-hint", "API key stored — type to replace, 'clear' to remove."));
+		}
 		manualCol.append(tokenInput);
 
 		const urlInput = el("input", "form-input") as HTMLInputElement;
@@ -249,8 +281,9 @@ export class ProfileForm {
 				profile.token = "";
 			} else {
 				const token = tokenInput.value;
+				// Unchanged masked sentinel: omit token so main keeps the stored one.
 				if (token === "clear") profile.token = "";
-				else if (token) profile.token = token;
+				else if (token && token !== MASKED_TOKEN) profile.token = token;
 				if (urlInput.value.trim()) profile.url = urlInput.value.trim();
 			}
 			return profile;

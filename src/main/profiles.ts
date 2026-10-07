@@ -34,6 +34,7 @@ const {
 	loadProfiles,
 	materializeProfile,
 	profileDirFor,
+	refreshSharedLinks,
 	removeProfile,
 	removeProfileDir,
 	removeProfileModel,
@@ -55,6 +56,27 @@ export class ProfileStore {
 	private usedProfileDirs = new Set<string>();
 	/** Wired by main to broadcast profile changes to the renderer. */
 	onChanged: (() => void) | null = null;
+
+	constructor() {
+		// Self-heal shared links (sessions etc.) for every stored profile at
+		// startup — not just when a tab happens to materialize one. Without
+		// this, a launch with zero tabs never repairs a broken/missing link,
+		// and profile sessions stay invisible to SessionManager.listAll()
+		// (the history sidebar) even though the fix exists in the SDK.
+		// refreshSharedLinks only touches the links — no auth/settings writes —
+		// and no-ops for profile dirs that don't exist yet.
+		try {
+			for (const name of Object.keys(loadProfiles().profiles)) {
+				try {
+					refreshSharedLinks(profileDirFor(name));
+				} catch (err) {
+					console.warn(`[profiles] shared-link refresh failed for '${name}'`, err);
+				}
+			}
+		} catch (err) {
+			console.warn("[profiles] startup shared-link refresh failed", err);
+		}
+	}
 
 	list(): ProfilesDataDTO {
 		const data = loadProfiles();
