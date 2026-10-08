@@ -52,7 +52,7 @@ jobs:
         run: brew install msitools
 
       # Full install, not --omit=dev: pack-macos.sh copies the local
-      # node_modules/electron distribution, and both packs run scripts/build.mjs.
+      # node_modules/electron distribution, and both packs run devops/module/build.mjs.
       - name: Install dependencies
         run: npm ci
 

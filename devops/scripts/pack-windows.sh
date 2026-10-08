@@ -69,7 +69,7 @@ esac
 # 1. Production bundles (esbuild), copies assets into dist/. Same bundles the
 #    macOS pack uses — the JS is platform-neutral.
 echo "[pack-win] building renderer/main bundles…"
-node scripts/build.mjs --production
+node devops/module/build.mjs --production
 
 # 2. Fetch the official Electron win32-x64 distribution (cached, checksum-
 #    verified against the release's SHASUMS256.txt).

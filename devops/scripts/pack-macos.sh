@@ -39,7 +39,7 @@ fi
 
 # 1. Production bundles (esbuild), copies assets into dist/.
 echo "[pack] building renderer/main bundles…"
-node scripts/build.mjs --production
+node devops/module/build.mjs --production
 
 # 2. Assemble the .app from the local Electron distribution.
 APP_PATH="$STAGE/$APP_NAME.app"
