@@ -1,6 +1,6 @@
 {
 	"name": "pi-plus-desktop",
-	"version": "0.1.6",
+	"version": "0.1.7",
 	"description": "Desktop app for pi-plus: multi-tab AI agent sessions with profile management, built on pi-plus-sdk.",
 	"type": "module",
 	"main": "dist/main.js",
