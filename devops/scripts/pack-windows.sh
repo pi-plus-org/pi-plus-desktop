@@ -81,9 +81,22 @@ else
 	curl -fL --retry 3 --progress-bar -o "$CACHE_DIR/$ELECTRON_ZIP.part" "$ELECTRON_URL"
 	curl -fL --retry 3 -s -o "$CACHE_DIR/electron-v${EV}-SHASUMS256.txt" \
 		"https://github.com/electron/electron/releases/download/v${EV}/SHASUMS256.txt"
-	# SHASUMS256.txt lines look like "<hash> *<file>" (BSD binary-mode format).
-	(cd "$CACHE_DIR" && grep "\*${ELECTRON_ZIP}\$" "electron-v${EV}-SHASUMS256.txt" | shasum -a 256 -c -)
+	# SHASUMS256.txt lines look like "<hash> *<file>" (BSD binary-mode format),
+	# so the checksum reads the zip by its final name: rename before verifying,
+	# and drop a failed download so the next run re-fetches instead of trusting
+	# a cached zip that never passed verification.
 	mv "$CACHE_DIR/$ELECTRON_ZIP.part" "$CACHE_DIR/$ELECTRON_ZIP"
+	CHECKSUM_LINE="$(grep "\*${ELECTRON_ZIP}\$" "$CACHE_DIR/electron-v${EV}-SHASUMS256.txt")"
+	if [ -z "$CHECKSUM_LINE" ]; then
+		echo "[pack-win] no checksum entry for $ELECTRON_ZIP in SHASUMS256.txt" >&2
+		rm -f "$CACHE_DIR/$ELECTRON_ZIP"
+		exit 1
+	fi
+	if ! (cd "$CACHE_DIR" && echo "$CHECKSUM_LINE" | shasum -a 256 -c -); then
+		echo "[pack-win] checksum mismatch for $ELECTRON_ZIP; removed the bad download" >&2
+		rm -f "$CACHE_DIR/$ELECTRON_ZIP"
+		exit 1
+	fi
 fi
 
 # 3. Extract the distribution into the staging folder.
