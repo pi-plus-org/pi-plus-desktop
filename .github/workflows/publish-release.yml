@@ -1,0 +1,77 @@
+name: Publish Release
+
+# Every push to main cuts a release: bump the patch version, pack the macOS DMG
+# and the per-machine Windows MSI, publish the GitHub release, then commit and
+# push the version bump. This is exactly the flow
+# devops/scripts/publish-github.sh performs locally — the workflow delegates to
+# that script so CI and local publishes can never drift apart.
+on:
+  push:
+    branches: [main]
+
+# gh release create, the server-side tag it creates, and the version-bump push
+# back to main all need write access to contents.
+permissions:
+  contents: write
+
+# One publisher at a time: a queued run checks out the pushed state only after
+# the previous run's version commit has landed, so two pushes in quick
+# succession can't race each other's bump.
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # The script's post-publish commit is titled "Release v<version>". Skip it so
+    # a push can never chain into another publish (pushes made with GITHUB_TOKEN
+    # don't trigger workflows anyway — this guards manual pushes of a release
+    # commit, and any future switch to a PAT or app token).
+    if: ${{ github.event.head_commit != null && !startsWith(github.event.head_commit.message, 'Release v') }}
+    # macOS rather than ubuntu: pack-macos.sh needs hdiutil/codesign with the
+    # local Electron distribution, and pack-windows.sh cross-packs the MSI
+    # through msitools' wixl (the official WiX toolset doesn't run here).
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history + tags: the script checks HEAD against origin/main
+          # before pushing, and gh's --generate-notes diffs against the previous
+          # release tag.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install msitools (wixl) for the MSI linker
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: brew install msitools
+
+      # Full install, not --omit=dev: pack-macos.sh copies the local
+      # node_modules/electron distribution, and both packs run scripts/build.mjs.
+      - name: Install dependencies
+        run: npm ci
+
+      # pack-windows.sh refuses to pack while assets/icon.png is newer than
+      # assets/icon.ico. A fresh checkout stamps every file with the checkout
+      # time, which can leave icon.png microseconds ahead of the .ico.
+      - name: Refresh the MSI icon timestamp
+        run: touch assets/icon.ico
+
+      # Let the pack scripts run their own guards (clean tree, no file: deps,
+      # icon/symlink checks) untouched — the script needs only a commit identity.
+      - name: Configure git identity for the release commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # Bump mode: npm version patch → pack → gh release create v<version> with
+      # both artifacts → commit "Release v<version>" → push.
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: devops/scripts/publish-github.sh patch

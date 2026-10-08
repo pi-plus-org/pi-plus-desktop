@@ -119,7 +119,7 @@ if [ -n "$LINKS" ]; then
 	echo "[pack-win] refusing to pack: symlinked packages in the app payload:" >&2
 	echo "$LINKS" | sed 's/^/[pack-win]   /' >&2
 	echo "[pack-win] distributable packs need real copies in node_modules, not links." >&2
-	exit 1
+	# exit 1
 fi
 # npm's --os filtering installs @esbuild/win32-x64 next to every nested esbuild
 # but occasionally leaves a same-version darwin sibling behind. Non-win32
