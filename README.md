@@ -40,7 +40,7 @@ All past sessions, newest first, with a search box matching titles and full tran
 
 ### File tree (right)
 
-The active session's working folder as a lazy tree. Agent edits appear automatically; **⌂** opens the folder in Finder/Explorer. Toggle with **View → Toggle File Tree** (⌘⌥B / Ctrl+Alt+B); the panel is drag-resizable and hides itself when no tab is open.
+The active session's working folder as a lazy tree. Agent edits appear automatically; click a row to select it, then **⌂** reveals that file/folder in Finder/Explorer (with nothing selected it reveals the working folder itself). Toggle with **View → Toggle File Tree** (⌘⌥B / Ctrl+Alt+B); the panel is drag-resizable and hides itself when no tab is open.
 
 ### Profiles & settings
 

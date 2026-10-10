@@ -407,7 +407,7 @@ export const IPC = {
 		readImage: "attachment:readImage",
 		saveAttachment: "attachment:save",
 		listDir: "fs:listDir",
-		openPath: "shell:openPath",
+		revealPath: "shell:revealPath",
 		respondDialog: "dialog:respond",
 		respondAuthPrompt: "auth:respond",
 	},
@@ -540,10 +540,11 @@ export interface PiApi {
 	 */
 	listDir(tabId: string, subpath: string, prefix?: string): Promise<ListDirResultDTO>;
 	/**
-	 * Open an absolute path in the system file explorer (Finder / Windows
-	 * Explorer / xdg-open). Resolves to "" on success, or the error message.
+	 * Reveal an absolute path in the system file explorer (Finder / Windows
+	 * Explorer select it in its parent folder; xdg-open fallback on Linux).
+	 * Resolves to "" on success, or the error message.
 	 */
-	openPath(path: string): Promise<string>;
+	revealPath(path: string): Promise<string>;
 	respondDialog(requestId: string, value: unknown): void;
 	/** Answer a bridged login prompt; null rejects it as "Login cancelled". */
 	respondAuthPrompt(requestId: string, value: string | null): void;

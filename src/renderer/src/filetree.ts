@@ -4,7 +4,9 @@
  * One directory level is fetched at a time through the same fs:listDir IPC
  * as the composer's @-menu (it clamps listings to the tab's cwd, resolves
  * symlinked dirs, and caps huge listings), so no new main-process surface is
- * needed. The header ⌂ opens the cwd in Finder/Explorer, ⟳ re-lists every expanded directory; ⌘/Ctrl+⌥/Alt+B
+ * needed. The header ⌂ reveals the selected row (or the cwd itself when
+ * nothing is selected) in Finder/Explorer — the item is selected inside its
+ * parent folder; ⟳ re-lists every expanded directory; ⌘/Ctrl+⌥/Alt+B
  * (View → Toggle File Tree) collapses the panel to a floating chip, like the
  * history sidebar's ⌘B. The tree re-syncs when the active tab or its cwd
  * changes (tab switch, /cd, resume) and debounce-refreshes on chat activity
@@ -44,6 +46,12 @@ export class FileTree {
 	private children = new Map<string, DirEntryDTO[]>();
 	/** Per-directory "listing was capped" flags. */
 	private truncated = new Set<string>();
+	/**
+	 * relPath of the highlighted row, or null for none. The ⌂ button targets
+	 * this item (falling back to the cwd), so "pick a file, hit ⌂" lands on
+	 * exactly that file in the system explorer.
+	 */
+	private selected: string | null = null;
 	private loading = false;
 	/** Bumped on every refresh; renders from a stale pass are dropped. */
 	private loadSeq = 0;
@@ -113,6 +121,7 @@ export class FileTree {
 				this.expanded.clear();
 				this.children.clear();
 				this.truncated.clear();
+				this.selected = null;
 				// filetree-collapsed reuses the existing :has() grid rules (0-width
 				// track); filetree-hidden additionally suppresses the expand chip.
 				this.root.classList.add("filetree-hidden", "filetree-collapsed");
@@ -131,6 +140,7 @@ export class FileTree {
 		this.expanded.clear();
 		this.children.clear();
 		this.truncated.clear();
+		this.selected = null;
 		void this.refresh();
 	}
 
@@ -173,7 +183,26 @@ export class FileTree {
 			this.children.set(rel, entries);
 			if (truncated) this.truncated.add(rel);
 		}
+		// The agent can delete/rename the highlighted file out from under the
+		// selection; a stale target would reveal nothing, so drop it instead.
+		if (this.selected !== null && this.selected !== "" && !this.isListed(this.selected)) this.selected = null;
 		this.render();
+	}
+
+	/** True while relPath appears in any currently loaded listing. */
+	private isListed(rel: string): boolean {
+		for (const entries of this.children.values()) {
+			if (entries.some((e) => e.relPath === rel)) return true;
+		}
+		return false;
+	}
+
+	/** Absolute path of a cwd-relative entry path ("" / null = the cwd itself). */
+	private absPath(rel: string | null): string {
+		const cwd = store.active?.cwd ?? "";
+		if (!cwd || !rel) return cwd;
+		const base = cwd.endsWith("/") || cwd.endsWith("\\") ? cwd.slice(0, -1) : cwd;
+		return `${base}/${rel}`;
 	}
 
 	private expandDir(rel: string): void {
@@ -199,6 +228,11 @@ export class FileTree {
 	}
 
 	render(): void {
+		// render() rebuilds the list node from scratch on every state change
+		// (selection, expand/collapse, refresh), so carry the scroll offset over
+		// to the new node — otherwise picking a file deep in the tree snaps the
+		// panel back to the top. Clamped automatically if the list shrank.
+		const prevScroll = this.root.querySelector<HTMLElement>(".filetree-list")?.scrollTop ?? 0;
 		this.root.replaceChildren();
 
 		// Hidden (no open tab): render nothing — not even the expand chip.
@@ -216,13 +250,16 @@ export class FileTree {
 		const tab = store.active;
 		const header = el("div", "sidebar-header");
 		header.append(el("span", "sidebar-header-title", "Files"));
+		// ⌂ targets the selected row, or the cwd when nothing is highlighted.
+		const revealTarget = this.absPath(this.selected);
+		const revealName = this.selected ? this.selected.split("/").pop() : tab?.cwd ?? "";
 		const openBtn = el("button", "sidebar-refresh", "⌂");
-		openBtn.title = "Open folder in system file explorer";
+		openBtn.title = revealTarget ? `Reveal '${revealName}' in system file explorer` : "No folder to reveal";
+		openBtn.toggleAttribute("disabled", !revealTarget);
 		openBtn.addEventListener("click", () => {
-			const cwd = store.active?.cwd;
-			if (!cwd) return;
-			void window.pi.openPath(cwd).then((error) => {
-				if (error) notify(`Could not open '${cwd}': ${error}`, "error");
+			if (!revealTarget) return;
+			void window.pi.revealPath(revealTarget).then((error) => {
+				if (error) notify(`Could not reveal '${revealTarget}': ${error}`, "error");
 			});
 		});
 		const refreshBtn = el("button", "sidebar-refresh", "⟳");
@@ -236,7 +273,13 @@ export class FileTree {
 
 		const cwdLabel = el("div", "filetree-cwd");
 		cwdLabel.textContent = tab ? tab.cwd || "(no folder)" : "";
-		cwdLabel.title = tab?.cwd ?? "";
+		cwdLabel.title = tab ? `${tab.cwd} · click to select the folder itself (⌂ reveals it)` : "";
+		if (this.selected === "") cwdLabel.classList.add("filetree-cwd-selected");
+		cwdLabel.addEventListener("click", () => {
+			if (!store.active) return;
+			this.selected = "";
+			this.render();
+		});
 		this.root.append(cwdLabel);
 
 		if (!tab) {
@@ -259,12 +302,14 @@ export class FileTree {
 			}
 		}
 		this.root.append(list);
+		list.scrollTop = prevScroll;
 	}
 
 	private renderEntry(entry: DirEntryDTO, depth: number): HTMLElement {
 		const isOpen = this.expanded.has(entry.relPath);
 		const row = el("div", "filetree-row");
 		row.style.paddingLeft = `${10 + depth * 14}px`;
+		if (this.selected === entry.relPath) row.classList.add("filetree-selected");
 
 		const arrow = el("span", "filetree-arrow", entry.isDir ? (isOpen ? "▾" : "▸") : "");
 		row.append(arrow);
@@ -273,7 +318,13 @@ export class FileTree {
 
 		if (entry.isDir) {
 			row.classList.add("filetree-row-dir");
-			row.addEventListener("click", () => (isOpen ? this.collapseDir(entry.relPath) : this.expandDir(entry.relPath)));
+			// A directory click both highlights (the ⌂ target) and toggles
+			// expansion; expandDir/collapseDir do the re-render.
+			row.addEventListener("click", () => {
+				this.selected = entry.relPath;
+				if (isOpen) this.collapseDir(entry.relPath);
+				else this.expandDir(entry.relPath);
+			});
 			if (isOpen) {
 				const children = this.children.get(entry.relPath);
 				const wrap = el("div", "filetree-children");
@@ -287,7 +338,15 @@ export class FileTree {
 				}
 				return wrap;
 			}
+			return row;
 		}
+
+		// Files: click highlights; clicking the highlighted row again clears it
+		// so ⌂ falls back to the folder itself.
+		row.addEventListener("click", () => {
+			this.selected = this.selected === entry.relPath ? null : entry.relPath;
+			this.render();
+		});
 		return row;
 	}
 

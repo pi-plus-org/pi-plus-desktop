@@ -254,11 +254,26 @@ function registerIpc(): void {
 		return result.canceled ? [] : result.filePaths;
 	});
 
+	// Reveal an absolute path in the system file explorer: Finder/Explorer open
+	// the *parent* folder with the item selected (shell.showItemInFolder), which
+	// is fire-and-forget and silently no-ops on a missing path — hence the
+	// existence check so the caller gets a real error instead of nothing.
+	ipcMain.handle(IPC.invoke.revealPath, async (_e, target: string) => {
+		if (!target) return "No path given";
+		if (!existsSync(target)) return `'${target}' does not exist`;
+		try {
+			shell.showItemInFolder(target);
+			return "";
+		} catch {
+			// No file manager to reveal in (e.g. headless Linux): just open it.
+			return shell.openPath(target);
+		}
+	});
+
 	// One-segment directory listing for the composer's @-menu, clamped to the
 	// tab's cwd, prefix-filtered *before* the cap so "keep typing to narrow"
 	// can surface entries beyond it. Type-ahead UIs treat vanished/locked dirs
 	// as "no suggestions", so errors resolve to an empty listing.
-	ipcMain.handle(IPC.invoke.openPath, (_e, target: string) => shell.openPath(target));
 	ipcMain.handle(IPC.invoke.listDir, async (_e, tabId: string, subpath: string, prefixRaw?: string): Promise<ListDirResultDTO> => {
 		const empty: ListDirResultDTO = { entries: [], truncated: false };
 		let cwd: string;
