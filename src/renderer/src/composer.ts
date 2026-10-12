@@ -1223,6 +1223,20 @@ export class Composer {
 		}
 	}
 
+	/**
+	 * Park the currently rendered tab's draft into its TabState without waiting
+	 * for a tab switch. Used before tabs are torn down programmatically (the
+	 * packages-changed restart), where the normal switch-path park would find
+	 * the old tab already gone.
+	 */
+	flushDraft(): void {
+		const prev = this.lastTabId ? store.tabs.get(this.lastTabId) : undefined;
+		if (!prev) return;
+		prev.draft = this.textarea.value;
+		prev.draftAttachments = [...this.attachments];
+		prev.draftFolders = [...this.folderPaths];
+	}
+
 	private syncToolbar(active: TabState | undefined): void {
 		this.toolbar.hidden = !active;
 		// Permission chip in the bottom strip: the mode is tab state (set at

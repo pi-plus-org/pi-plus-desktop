@@ -110,7 +110,28 @@ export class PackageStore {
 	/** Serializes install/remove/update so concurrent ops can never interleave. */
 	private queue: Promise<unknown> = Promise.resolve();
 
+	/**
+	 * Fired (main side) after any successful install/remove/update. The app
+	 * uses it to prompt for restarting open sessions — extensions are loaded
+	 * and bound at session creation, so only fresh sessions see the change.
+	 */
+	onChanged?: () => void;
+
 	constructor(private pushProgress: (event: PackageProgressDTO) => void) {}
+
+	/**
+	 * Drop every cached extension factory so the next session rebuilds them
+	 * from disk. Matters for updates/removals: factories are cached per
+	 * resolved path for the life of the process, so without this a new session
+	 * could keep running the pre-update code. Structural call because the
+	 * SDK's nested coding-agent type copy may lag the runtime bundle; older
+	 * SDKs without the export are tolerated (re-resolving the package list
+	 * already covers installs).
+	 */
+	private clearExtensionFactories(): void {
+		const maybe = sdk as unknown as { clearExtensionCache?: () => void };
+		maybe.clearExtensionCache?.();
+	}
 
 	/** Configured packages from the base settings.json (sync SDK call). */
 	list(): PackageDTO[] {
@@ -139,6 +160,8 @@ export class PackageStore {
 				await sdk.installPackage(normalized, {
 					onProgress: (event) => this.pushProgress(event),
 				});
+				this.clearExtensionFactories();
+				this.onChanged?.();
 			} catch (err) {
 				rewordSpawnError(err);
 			}
@@ -152,6 +175,8 @@ export class PackageStore {
 			try {
 				const removed = await sdk.removePackage(source);
 				if (!removed) throw new Error(`'${source}' is not a configured package.`);
+				this.clearExtensionFactories();
+				this.onChanged?.();
 			} catch (err) {
 				rewordSpawnError(err);
 			}
@@ -166,6 +191,8 @@ export class PackageStore {
 				await sdk.updatePackages(source, {
 					onProgress: (event) => this.pushProgress(event),
 				});
+				this.clearExtensionFactories();
+				this.onChanged?.();
 			} catch (err) {
 				rewordSpawnError(err);
 			}

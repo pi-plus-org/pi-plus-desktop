@@ -5,8 +5,9 @@
  * pi packages contribute extensions, skills, prompt templates and themes.
  * They live in the base ~/.pi/agent settings + npm dir, so they are shared
  * by every profile and tab (the same declarations `pipi install` writes);
- * this window only manages the global (user-scope) set. Changes take effect
- * when a new session starts.
+ * this window only manages the global (user-scope) set. Open sessions are
+ * offered a restart when a change lands; otherwise changes take effect when
+ * a new session starts.
  *
  * Backed by `src/main/packages.ts` (PackageStore); every mutation resolves
  * to the fresh package list, which re-renders the grid.
@@ -80,25 +81,29 @@ function init(): void {
 	const content = el("div", "settings-content");
 	root.append(content);
 
-	content.append(el("div", "settings-section-title", "Packages"));
-	content.append(
-		el(
-			"div",
-			"settings-hint",
-			"Packages contribute extensions, skills, prompt templates and themes. They are installed globally in ~/.pi/agent — shared by every profile and tab, and the same list `pipi` manages — and take effect when a new session starts.",
-		),
-	);
+	// Page header: real title + one-line subtitle (kept short; the details live
+	// in the section hints below).
+	const pkgHeader = el("div", "pkg-header");
+	pkgHeader.append(el("div", "pkg-title", "Packages"));
+	const pkgSubtitle = el("div", "pkg-subtitle");
+	pkgSubtitle.append("Extensions, skills, prompt templates and themes — installed globally in ");
+	pkgSubtitle.append(el("code", "pkg-code", "~/.pi/agent"));
+	pkgSubtitle.append(", shared by every profile and tab (the same list ");
+	pkgSubtitle.append(el("code", "pkg-code", "pipi"));
+	pkgSubtitle.append(" manages). Open sessions are offered a restart when a change lands; otherwise changes take effect when a new session starts.");
+	pkgHeader.append(pkgSubtitle);
+	content.append(pkgHeader);
 
-	const pkgToolbar = el("div", "settings-toolbar");
+	const pkgToolbar = el("div", "pkg-toolbar");
 	const pkgAddBtn = el("button", "dialog-btn dialog-btn-primary", "Add package") as HTMLButtonElement;
 	const pkgUpdateAllBtn = el("button", "dialog-btn", "Update all") as HTMLButtonElement;
-	pkgToolbar.append(pkgAddBtn, el("div", "settings-toolbar-spacer"), pkgUpdateAllBtn);
-	const pkgStatus = el("div", "package-status"); // hidden while empty
-	const packagesGrid = el("div", "settings-grid");
-	content.append(pkgToolbar, pkgStatus, packagesGrid);
+	pkgToolbar.append(pkgAddBtn, pkgUpdateAllBtn);
+	const pkgStatus = el("div", "pkg-status"); // hidden while empty
+	const pkgListBox = el("div", "pkg-list");
+	content.append(pkgToolbar, pkgStatus, pkgListBox);
 
 	// Package tools section: where npm/git live (auto-detect on PATH or a manual
-	// binary path) with a live resolved/missing status per tool.
+	// binary path) with a live resolved/missing pill per tool.
 	content.append(el("div", "settings-section-title", "Package tools"));
 	content.append(
 		el(
@@ -107,12 +112,12 @@ function init(): void {
 			"Installing npm or git packages shells out to these tools. Auto-detect finds them on PATH; Manual lets you point at a specific binary (its directory is used to run installs).",
 		),
 	);
-	const pkgToolGrid = el("div", "settings-grid");
-	const toolStatusEls: Record<"npm" | "git", HTMLDivElement> = {
-		npm: el("div", "pkg-tool-status") as HTMLDivElement,
-		git: el("div", "pkg-tool-status") as HTMLDivElement,
+	const pkgToolRows = el("div", "pkg-tools");
+	const toolStatusEls: Record<"npm" | "git", HTMLSpanElement> = {
+		npm: el("span", "pkg-tool-pill") as HTMLSpanElement,
+		git: el("span", "pkg-tool-pill") as HTMLSpanElement,
 	};
-	content.append(pkgToolGrid);
+	content.append(pkgToolRows);
 
 	let pkgBusy = false; // a mutation is running — buttons disabled
 	let pkgLoaded = false;
@@ -121,35 +126,44 @@ function init(): void {
 
 	const setPkgStatus = (message: string, kind: "info" | "error" = "info"): void => {
 		pkgStatus.textContent = message;
-		pkgStatus.classList.toggle("package-status-error", kind === "error");
+		pkgStatus.classList.toggle("pkg-status-error", kind === "error");
 		pkgStatus.style.display = message ? "" : "none";
 	};
 
 	const renderPackages = (list: PackageDTO[]): void => {
-		packagesGrid.replaceChildren();
+		pkgListBox.replaceChildren();
 		if (!list.length) {
-			packagesGrid.append(
-				el("div", "settings-empty", "No packages installed yet — add an npm package, a git repo, or a local path."),
-			);
+			// Empty state carries its own CTA instead of relying on the toolbar.
+			const empty = el("div", "pkg-empty");
+			empty.append(el("div", "pkg-empty-glyph", "📦"));
+			empty.append(el("div", "pkg-empty-title", "No packages installed"));
+			empty.append(el("div", "pkg-empty-sub", "Add an npm package, a git repo, or a local path — anything `pipi install` accepts."));
+			const cta = el("button", "dialog-btn dialog-btn-primary", "Add package") as HTMLButtonElement;
+			cta.addEventListener("click", openAddPackageDialog);
+			empty.append(cta);
+			pkgListBox.append(empty);
 			return;
 		}
 		for (const pkg of list) {
-			const card = el("div", "settings-card package-card");
+			const row = el("div", "pkg-row");
 
-			const head = el("div", "settings-card-head");
-			head.append(el("span", "settings-card-name package-card-name", pkg.source));
+			const main = el("div", "pkg-row-main");
+			const head = el("div", "pkg-row-head");
+			head.append(el("span", "pkg-row-source", pkg.source));
+			const cls = classifySource(pkg.source).cls;
+			head.append(el("span", "pkg-badge pkg-badge-type", cls));
 			head.append(el("span", "pkg-badge", pkg.scope === "user" ? "user" : "project"));
 			if (pkg.filtered) head.append(el("span", "pkg-badge pkg-badge-filtered", "filtered"));
-			card.append(head);
+			main.append(head);
 
-			if (pkg.installedPath) card.append(el("div", "settings-card-meta", pkg.installedPath));
+			if (pkg.installedPath) main.append(el("div", "pkg-row-path", pkg.installedPath));
+			row.append(main);
 
 			// npm/git ops shell out to those tools — disable when unavailable.
-			const cls = classifySource(pkg.source).cls;
 			const toolMissing =
 				(cls === "npm" && pkgTools !== null && !pkgTools.npm) || (cls === "git" && pkgTools !== null && !pkgTools.git);
 
-			const actions = el("div", "package-card-actions");
+			const actions = el("div", "pkg-row-actions");
 			const updateBtn = el("button", "dialog-btn", "Update") as HTMLButtonElement;
 			updateBtn.title = toolMissing ? TOOL_HINTS[cls as "npm" | "git"] : "Upgrade this package";
 			updateBtn.disabled = pkgBusy || toolMissing;
@@ -159,8 +173,8 @@ function init(): void {
 			removeBtn.title = toolMissing ? TOOL_HINTS[cls as "npm" | "git"] : "Remove this package";
 			removeBtn.addEventListener("click", () => openRemovePackageDialog(pkg.source));
 			actions.append(updateBtn, removeBtn);
-			card.append(actions);
-			packagesGrid.append(card);
+			row.append(actions);
+			pkgListBox.append(row);
 		}
 	};
 
@@ -202,7 +216,7 @@ function init(): void {
 			.catch((err) => {
 				console.warn("[packages] listPackages failed", err);
 				if (!pkgLoaded)
-					packagesGrid.replaceChildren(el("div", "settings-empty", "Couldn't load packages. Check the main process logs."));
+					pkgListBox.replaceChildren(el("div", "pkg-empty-title", "Couldn't load packages. Check the main process logs."));
 			});
 	};
 
@@ -214,27 +228,27 @@ function init(): void {
 			const resolved = pkgTools?.[tool];
 			if (resolved) {
 				status.textContent = `Using ${resolved}`;
-				status.classList.remove("pkg-tool-status-missing");
+				status.className = "pkg-tool-pill pkg-tool-pill-ok";
+				status.title = resolved;
 			} else if (pkgTools === null) {
 				status.textContent = "Checking…";
-				status.classList.remove("pkg-tool-status-missing");
+				status.className = "pkg-tool-pill";
+				status.title = "";
 			} else {
-				status.textContent = `Not found — ${tool} packages can't be installed until a valid ${tool} is located.`;
-				status.classList.add("pkg-tool-status-missing");
+				// Full remediation hint lives in the tooltip (install command / set a manual path).
+				status.textContent = "Not found";
+				status.className = "pkg-tool-pill pkg-tool-pill-missing";
+				status.title = TOOL_HINTS[tool];
 			}
 		}
 	};
 
 	const renderToolRows = (): void => {
-		pkgToolGrid.replaceChildren();
+		pkgToolRows.replaceChildren();
 		for (const tool of ["npm", "git"] as const) {
 			const setting = pkgToolSettings?.[tool] ?? { mode: "auto" as const, path: "" };
-			const card = el("div", "settings-card");
-			const head = el("div", "settings-card-head");
-			head.append(el("span", "settings-card-name package-card-name", tool));
-			card.append(head);
-			const modeRow = el("label", "form-row");
-			modeRow.append(el("span", "form-label", "Location"));
+			const row = el("div", "pkg-tool-row");
+			row.append(el("span", "pkg-tool-name", tool));
 			const select = el("select", "form-input") as HTMLSelectElement;
 			for (const [value, label] of [
 				["auto", "Auto-detect (PATH)"],
@@ -245,18 +259,15 @@ function init(): void {
 				select.append(option);
 			}
 			select.value = setting.mode;
-			modeRow.append(select);
-			card.append(modeRow);
-			const pathRow = el("label", "form-row");
-			pathRow.append(el("span", "form-label", "Path"));
-			const input = el("input", "form-input") as HTMLInputElement;
+			row.append(select);
+			// The path box only exists in Manual mode — in Auto it would be a
+			// permanently disabled input squatting in the layout.
+			const input = el("input", "form-input pkg-tool-path") as HTMLInputElement;
 			input.placeholder = `/path/to/${tool}`;
 			input.value = setting.path;
-			input.disabled = setting.mode !== "manual";
-			pathRow.append(input);
-			card.append(pathRow);
-			card.append(toolStatusEls[tool]);
-			pkgToolGrid.append(card);
+			input.style.display = setting.mode === "manual" ? "" : "none";
+			row.append(input, toolStatusEls[tool]);
+			pkgToolRows.append(row);
 
 			// Persist the setting main-side (piPlus block), then re-probe with the
 			// new config so the status row and Add-dialog gating reflect it.
@@ -270,11 +281,12 @@ function init(): void {
 			let pathSaveTimer: ReturnType<typeof setTimeout> | undefined;
 			select.addEventListener("change", () => {
 				const mode = select.value === "manual" ? "manual" : "auto";
-				input.disabled = mode !== "manual";
+				input.style.display = mode === "manual" ? "" : "none";
+				if (mode === "manual") input.focus();
 				save({ mode, path: mode === "manual" ? input.value.trim() : "" });
 			});
 			input.addEventListener("input", () => {
-				if (input.disabled) return;
+				if (input.style.display === "none") return;
 				clearTimeout(pathSaveTimer);
 				pathSaveTimer = setTimeout(() => save({ mode: "manual", path: input.value.trim() }), 400);
 			});

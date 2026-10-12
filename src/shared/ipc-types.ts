@@ -473,6 +473,8 @@ export const IPC = {
 		authPromptCancel: "auth:promptCancel",
 		authNotify: "auth:notify",
 		packagesProgress: "packages:progress",
+		/** A package install/remove/update succeeded; the main window offers to restart open sessions. */
+		packagesChanged: "packages:changed",
 	},
 } as const;
 
@@ -608,6 +610,8 @@ export interface PiApi {
 	onDialogNotify(cb: (note: { message: string; type?: string }) => void): () => void;
 	onProfilesChanged(cb: (data: ProfilesDataDTO) => void): () => void;
 	onPackagesProgress(cb: (event: PackageProgressDTO) => void): () => void;
+	/** A package install/remove/update succeeded — the main window offers to restart open sessions so the change takes effect. */
+	onPackagesChanged(cb: () => void): () => void;
 	listPackages(): Promise<PackageDTO[]>;
 	/** Availability of the npm/git binaries package ops shell out to. */
 	checkPackageTools(): Promise<PackageToolsDTO>;

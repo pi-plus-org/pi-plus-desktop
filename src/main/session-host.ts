@@ -122,6 +122,11 @@ export class SessionHost {
 		private defaultPermissionMode: () => PermissionMode = () => "bypass",
 	) {}
 
+	/** Live tab count — used to decide whether a packages-changed prompt is needed. */
+	get tabCount(): number {
+		return this.tabs.size;
+	}
+
 	createTab(opts: { cwd?: string; profileName?: string | null }): TabDescriptor {
 		const profileName = opts.profileName ?? null;
 		const cwd = opts.cwd ?? process.cwd();

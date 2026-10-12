@@ -109,6 +109,17 @@ const loginBridge = new LoginBridge(
 const packageStore = new PackageStore((event) => {
 	for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IPC.push.packagesProgress, event);
 });
+// A successful package install/remove/update only affects sessions created
+// afterwards (extensions load/bind at session creation), so the main window
+// (which owns the tabs) is notified and offers to restart its open sessions.
+// With tabs present the window is surfaced so the confirm dialog is seen.
+packageStore.onChanged = () => {
+	for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IPC.push.packagesChanged);
+	if (sessionHost.tabCount > 0 && mainWindow && !mainWindow.isDestroyed()) {
+		mainWindow.show();
+		mainWindow.focus();
+	}
+};
 
 const webPreferences = {
 	preload: path.join(__dirname, "preload.cjs"),

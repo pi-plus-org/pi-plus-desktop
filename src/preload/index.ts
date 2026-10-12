@@ -94,6 +94,7 @@ const api: PiApi = {
 	onAuthPromptCancel: (cb) => subscribe(IPC.push.authPromptCancel, cb),
 	onAuthNotify: (cb) => subscribe(IPC.push.authNotify, cb),
 	onPackagesProgress: (cb) => subscribe(IPC.push.packagesProgress, cb),
+	onPackagesChanged: (cb) => subscribe(IPC.push.packagesChanged, cb),
 };
 
 contextBridge.exposeInMainWorld("pi", api);
