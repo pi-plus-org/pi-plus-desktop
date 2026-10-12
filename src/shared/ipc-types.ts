@@ -204,6 +204,31 @@ export interface ProfileAuthStatusDTO {
 	providers: { id: string; type: "api_key" | "oauth" }[];
 }
 
+/** One configured pi package (SDK ConfiguredPackage, plain JSON). */
+export interface PackageDTO {
+	source: string;
+	scope: "user" | "project";
+	/** True when the settings entry is an object form (resources filtered). */
+	filtered: boolean;
+	installedPath?: string;
+}
+
+/** Live progress from install/remove/update operations (SDK ProgressEvent). */
+export interface PackageProgressDTO {
+	type: "start" | "progress" | "complete" | "error";
+	action: "install" | "remove" | "update" | "clone" | "pull";
+	source: string;
+	message?: string;
+}
+
+/** Availability of the CLI tools package operations shell out to. */
+export interface PackageToolsDTO {
+	/** Absolute path to the npm binary, or null when unavailable. */
+	npm: string | null;
+	/** Absolute path to the git binary, or null when unavailable. */
+	git: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Push channels (main -> renderer)
 // ---------------------------------------------------------------------------
@@ -304,6 +329,22 @@ export interface ListDirResultDTO {
 export type ThemeMode = "system" | "light" | "dark";
 
 /**
+ * Location of an install tool (npm/git) the package store shells out to:
+ * auto-detect on PATH, or a manually configured binary path.
+ */
+export interface PackageToolSettingDTO {
+	mode: "auto" | "manual";
+	/** Manual mode only: path to the tool binary ("" = unset). */
+	path: string;
+}
+
+/** Per-tool location settings, keyed by tool name. */
+export interface PackageToolsSettingsDTO {
+	npm: PackageToolSettingDTO;
+	git: PackageToolSettingDTO;
+}
+
+/**
  * Desktop chrome preferences, stored in the piPlus block of the base agent
  * settings.json (~/.pi/agent/settings.json) via pi-plus-sdk; `editor` is the
  * upstream `externalEditor` key of that same file (shared with pipi's Ctrl+G).
@@ -318,6 +359,8 @@ export interface AppSettingsDTO {
 	filetreeWidth: number;
 	/** Permission mode new tabs start with (Settings → Permissions). */
 	defaultPermissionMode: PermissionMode;
+	/** npm/git install-tool locations (Packages window → Package tools). */
+	packageTools: PackageToolsSettingsDTO;
 }
 
 /**
@@ -399,6 +442,7 @@ export const IPC = {
 		setSidebarWidth: "settings:setSidebarWidth",
 		setFiletreeWidth: "settings:setFiletreeWidth",
 		setDefaultPermissionMode: "settings:setDefaultPermissionMode",
+		setPackageTools: "settings:setPackageTools",
 		openInEditor: "editor:open",
 		getCompaction: "settings:getCompaction",
 		setCompaction: "settings:setCompaction",
@@ -410,6 +454,11 @@ export const IPC = {
 		revealPath: "shell:revealPath",
 		respondDialog: "dialog:respond",
 		respondAuthPrompt: "auth:respond",
+		packagesList: "packages:list",
+		packagesInstall: "packages:install",
+		packagesRemove: "packages:remove",
+		packagesUpdate: "packages:update",
+		packagesTools: "packages:tools",
 	},
 	push: {
 		sessionEvent: "session:event",
@@ -423,6 +472,9 @@ export const IPC = {
 		authPrompt: "auth:prompt",
 		authPromptCancel: "auth:promptCancel",
 		authNotify: "auth:notify",
+		packagesProgress: "packages:progress",
+		/** A package install/remove/update succeeded; the main window offers to restart open sessions. */
+		packagesChanged: "packages:changed",
 	},
 } as const;
 
@@ -509,6 +561,8 @@ export interface PiApi {
 	setFiletreeWidth(width: number): Promise<void>;
 	/** Permission mode new tabs start with (Settings → Permissions). */
 	setDefaultPermissionMode(mode: PermissionMode): Promise<void>;
+	/** Persist npm/git tool-location settings (partial patch; see AppSettings). */
+	setPackageTools(patch: Partial<PackageToolsSettingsDTO>): Promise<void>;
 	/**
 	 * Open `text` in the configured editor via a temp file and wait for the
 	 * process to exit; resolves to the edited content (undefined when the file
@@ -555,6 +609,17 @@ export interface PiApi {
 	onDialogRequest(cb: (req: DialogRequestDTO) => void): () => void;
 	onDialogNotify(cb: (note: { message: string; type?: string }) => void): () => void;
 	onProfilesChanged(cb: (data: ProfilesDataDTO) => void): () => void;
+	onPackagesProgress(cb: (event: PackageProgressDTO) => void): () => void;
+	/** A package install/remove/update succeeded — the main window offers to restart open sessions so the change takes effect. */
+	onPackagesChanged(cb: () => void): () => void;
+	listPackages(): Promise<PackageDTO[]>;
+	/** Availability of the npm/git binaries package ops shell out to. */
+	checkPackageTools(): Promise<PackageToolsDTO>;
+	/** Resolves to the fresh package list; rejects with the SDK error message. */
+	installPackage(source: string): Promise<PackageDTO[]>;
+	removePackage(source: string): Promise<PackageDTO[]>;
+	/** Omit source to update every configured package. */
+	updatePackages(source?: string): Promise<PackageDTO[]>;
 	onMenuAction(cb: (action: MenuActionDTO) => void): () => void;
 	onAuthPrompt(cb: (prompt: AuthPromptDTO) => void): () => void;
 	/** The SDK resolved a prompt out-of-band (e.g. OAuth callback beat manual code). */

@@ -61,6 +61,81 @@ async function closeTab(tabId: string): Promise<void> {
 	store.removeTab(tabId);
 }
 
+// ── Packages changed: restart open sessions ─────────────────────────────
+// Extensions load and bind at session creation, so a package install/remove/
+// update only reaches sessions started afterwards. Offer to restart every
+// open tab: each is closed (its runtime disposed and transcript flushed),
+// then reopened resuming the same session file, with its profile, permission
+// mode and composer draft restored — the user lands back where they were.
+
+let restartingSessions = false;
+
+async function restartAllSessions(): Promise<void> {
+	// Coalesce bursts (e.g. update-all fans out per-package events) and ignore
+	// repeats while a restart is already running.
+	if (restartingSessions) return;
+	if (store.order.length === 0) return;
+	restartingSessions = true;
+	try {
+		const count = store.order.length;
+		const ok = await dialogs.confirmLocal(
+			"Restart sessions?",
+			`Packages changed. Restart ${count} open session${count === 1 ? "" : "s"} so the changes take effect?\nEach session resumes where it left off and drafts are kept; any running turn is aborted.`
+		);
+		if (!ok) {
+			dialogs.notify("Package changes will take effect when a new session starts.", "info");
+			return;
+		}
+		// Park the visible tab's textarea into its TabState before capture — the
+		// normal switch-path park would find these tabs already gone.
+		composerRef?.flushDraft();
+		const activeIndex = Math.max(0, store.order.indexOf(store.activeTabId ?? ""));
+		const snapshots = store.order.map((tabId, index) => {
+			const t = store.tabs.get(tabId);
+			return {
+				index,
+				tabId,
+				cwd: t?.cwd ?? "",
+				profileName: t?.profileName ?? null,
+				permissionMode: t?.permissionMode,
+				resumePath: t?.meta?.sessionFile,
+				draft: t?.draft ?? "",
+				draftAttachments: [...(t?.draftAttachments ?? [])],
+				draftFolders: [...(t?.draftFolders ?? [])],
+			};
+		});
+		const reopened: (string | null)[] = snapshots.map(() => null);
+		for (const snap of snapshots) {
+			// Close first: the runtime must flush and release the transcript
+			// before we can resume the same session file in a new tab.
+			await window.pi.closeTab(snap.tabId);
+			store.removeTab(snap.tabId);
+			const desc = await window.pi.createTab({ cwd: snap.cwd, profileName: snap.profileName });
+			const tab = store.addTab(desc);
+			if (snap.permissionMode) tab.permissionMode = snap.permissionMode;
+			tab.draft = snap.draft;
+			tab.draftAttachments = snap.draftAttachments;
+			tab.draftFolders = snap.draftFolders;
+			if (snap.resumePath) {
+				try {
+					const ensure = await window.pi.ensureSession(tab.tabId, snap.resumePath);
+					store.applyEnsure(tab, ensure);
+				} catch (err) {
+					// Keep the fresh tab (same cwd/profile/draft) so one bad
+					// transcript doesn't take the others down with it.
+					dialogs.notify(`Failed to resume session: ${String((err as Error).message ?? err)}`, "error");
+				}
+			}
+			reopened[snap.index] = tab.tabId;
+		}
+		const target = reopened[activeIndex] ?? reopened.find((id): id is string => !!id);
+		if (target) store.setActive(target);
+		else await newTab(); // every reopen failed — fall back to the zero-tab state
+	} finally {
+		restartingSessions = false;
+	}
+}
+
 /** ⌘⇧[ / ⌘⇧] — move active-tab focus with wrap-around. */
 function selectTabByOffset(offset: number): void {
 	const { order, activeTabId } = store;
@@ -319,6 +394,10 @@ function init(): void {
 	window.pi.onDialogRequest((req) => dialogs.handleRequest(req));
 	window.pi.onDialogNotify(({ message, type }) => dialogs.notify(message, type));
 	window.pi.onProfilesChanged((data) => tabsBar.setProfiles(data));
+	// A package install/remove/update succeeded (main already dropped the
+	// cached extension factories); offer to restart every open session so the
+	// change takes effect.
+	window.pi.onPackagesChanged(() => void restartAllSessions());
 	window.pi.onMenuAction((action) => {
 		switch (action.action) {
 			case "new-tab":

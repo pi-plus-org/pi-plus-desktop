@@ -37,7 +37,7 @@ const KNOWN_EDITORS: { label: string; command: string }[] = [
 // GUI-launched apps (Finder/Dock/open) get a minimal PATH that excludes the
 // usual CLI-install dirs, so probing PATH alone under-detects and a bare
 // command then fails at spawn time. Fall back to these well-known bin dirs.
-const EXTRA_BIN_DIRS = ["/usr/local/bin", "/opt/homebrew/bin", "/usr/bin"];
+export const EXTRA_BIN_DIRS = ["/usr/local/bin", "/opt/homebrew/bin", "/usr/bin"];
 
 /** Absolute path of a command, searched on PATH then in common bin dirs. */
 function resolveProgram(program: string): string | undefined {

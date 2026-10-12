@@ -58,6 +58,7 @@ const api: PiApi = {
 	setSidebarWidth: (width) => ipcRenderer.invoke(IPC.invoke.setSidebarWidth, width),
 	setFiletreeWidth: (width) => ipcRenderer.invoke(IPC.invoke.setFiletreeWidth, width),
 	setDefaultPermissionMode: (mode) => ipcRenderer.invoke(IPC.invoke.setDefaultPermissionMode, mode),
+	setPackageTools: (patch) => ipcRenderer.invoke(IPC.invoke.setPackageTools, patch),
 	openInEditor: (text) => ipcRenderer.invoke(IPC.invoke.openInEditor, text),
 	getCompactionSettings: () => ipcRenderer.invoke(IPC.invoke.getCompaction),
 	setCompactionSettings: (patch) => ipcRenderer.invoke(IPC.invoke.setCompaction, patch),
@@ -76,6 +77,11 @@ const api: PiApi = {
 	revealPath: (path) => ipcRenderer.invoke(IPC.invoke.revealPath, path),
 	respondDialog: (requestId, value) => ipcRenderer.send(IPC.invoke.respondDialog, requestId, value),
 	respondAuthPrompt: (requestId, value) => ipcRenderer.send(IPC.invoke.respondAuthPrompt, requestId, value),
+	listPackages: () => ipcRenderer.invoke(IPC.invoke.packagesList),
+	checkPackageTools: () => ipcRenderer.invoke(IPC.invoke.packagesTools),
+	installPackage: (source) => ipcRenderer.invoke(IPC.invoke.packagesInstall, source),
+	removePackage: (source) => ipcRenderer.invoke(IPC.invoke.packagesRemove, source),
+	updatePackages: (source) => ipcRenderer.invoke(IPC.invoke.packagesUpdate, source),
 	onSessionEvent: (cb) => subscribe(IPC.push.sessionEvent, cb),
 	onSessionStatus: (cb) => subscribe(IPC.push.sessionStatus, cb),
 	onSessionMeta: (cb) => subscribe(IPC.push.sessionMeta, cb),
@@ -87,6 +93,8 @@ const api: PiApi = {
 	onAuthPrompt: (cb) => subscribe(IPC.push.authPrompt, cb),
 	onAuthPromptCancel: (cb) => subscribe(IPC.push.authPromptCancel, cb),
 	onAuthNotify: (cb) => subscribe(IPC.push.authNotify, cb),
+	onPackagesProgress: (cb) => subscribe(IPC.push.packagesProgress, cb),
+	onPackagesChanged: (cb) => subscribe(IPC.push.packagesChanged, cb),
 };
 
 contextBridge.exposeInMainWorld("pi", api);

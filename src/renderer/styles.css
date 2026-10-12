@@ -1694,6 +1694,242 @@ body {
 	text-overflow: ellipsis;
 }
 
+/* Packages window (packages-app.ts) — full-width rows instead of a grid
+   (long git URLs read better on one line), a real page header, a dashed
+   empty state with its own CTA, and a single combined "Package tools" card
+   with per-tool mode select + status pill. */
+.pkg-header {
+	margin-bottom: 14px;
+}
+
+.pkg-title {
+	font-size: 18px;
+	font-weight: 700;
+	margin-bottom: 4px;
+}
+
+.pkg-subtitle {
+	font-size: 12px;
+	line-height: 1.5;
+	color: var(--text-dim);
+	max-width: 560px;
+}
+
+.pkg-code {
+	font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+	font-size: 11px;
+	background: var(--bg-input);
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	padding: 0 4px;
+}
+
+.pkg-toolbar {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 6px;
+}
+
+.pkg-status {
+	min-height: 18px;
+	margin-bottom: 10px;
+	font-size: 12px;
+	font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+	color: var(--text-dim);
+	word-break: break-all;
+}
+
+.pkg-status-error {
+	color: var(--danger);
+}
+
+.pkg-list {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-bottom: 22px;
+}
+
+.pkg-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 12px;
+	padding: 10px 14px;
+	background: var(--bg-input);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+}
+
+.pkg-row:hover {
+	background: var(--bg-hover);
+}
+
+.pkg-row-main {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+}
+
+.pkg-row-head {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 6px;
+	min-width: 0;
+}
+
+.pkg-row-source {
+	font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+	font-size: 13px;
+	font-weight: 600;
+	word-break: break-all;
+}
+
+.pkg-row-path {
+	max-width: 100%;
+	font-size: 11px;
+	color: var(--text-dim);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.pkg-row-actions {
+	display: flex;
+	gap: 6px;
+}
+
+.pkg-row-actions .dialog-btn {
+	font-size: 12px;
+	padding: 3px 10px;
+}
+
+.pkg-badge {
+	flex: none;
+	font-size: 11px;
+	color: var(--text-dim);
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	padding: 1px 8px;
+}
+
+/* Source-type chip (npm / git / local), colored like settings-card-badge. */
+.pkg-badge-type {
+	color: var(--accent);
+	border-color: var(--accent-dim);
+}
+
+.pkg-badge-filtered {
+	color: var(--text-dim);
+	border-style: dashed;
+}
+
+.pkg-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 5px;
+	margin-bottom: 22px;
+	padding: 26px 16px;
+	border: 1px dashed var(--border);
+	border-radius: var(--radius);
+	text-align: center;
+}
+
+.pkg-empty-glyph {
+	font-size: 26px;
+	line-height: 1;
+	margin-bottom: 4px;
+}
+
+.pkg-empty-title {
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--text);
+}
+
+.pkg-empty-sub {
+	font-size: 12px;
+	color: var(--text-dim);
+}
+
+.pkg-empty .dialog-btn {
+	margin-top: 8px;
+}
+
+/* Combined Package tools card: one row per tool. */
+.pkg-tools {
+	background: var(--bg-input);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	padding: 4px 14px;
+}
+
+.pkg-tool-row {
+	display: grid;
+	grid-template-columns: 44px 170px minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 10px;
+	padding: 10px 0;
+}
+
+.pkg-tool-row + .pkg-tool-row {
+	border-top: 1px solid var(--border);
+}
+
+.pkg-tool-name {
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.pkg-tool-path {
+	grid-column: 3;
+	width: 100%;
+}
+
+/* Pinned to the last track: with the path input display:none in Auto mode,
+   auto-placement would otherwise slot the pill into the flexible column. */
+.pkg-tool-pill {
+	grid-column: 4;
+	justify-self: end;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	max-width: 280px;
+	font-size: 12px;
+	color: var(--text-dim);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.pkg-tool-pill::before {
+	content: "";
+	width: 7px;
+	height: 7px;
+	flex: none;
+	border-radius: 50%;
+	background: var(--text-dim);
+	opacity: 0.5;
+}
+
+.pkg-tool-pill-ok::before {
+	background: var(--ok);
+	opacity: 1;
+}
+
+.pkg-tool-pill-missing {
+	color: var(--danger);
+}
+
+.pkg-tool-pill-missing::before {
+	background: var(--danger);
+	opacity: 1;
+}
+
 .settings-card-head {
 	display: flex;
 	align-items: center;
