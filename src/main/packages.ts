@@ -123,14 +123,10 @@ export class PackageStore {
 	 * Drop every cached extension factory so the next session rebuilds them
 	 * from disk. Matters for updates/removals: factories are cached per
 	 * resolved path for the life of the process, so without this a new session
-	 * could keep running the pre-update code. Structural call because the
-	 * SDK's nested coding-agent type copy may lag the runtime bundle; older
-	 * SDKs without the export are tolerated (re-resolving the package list
-	 * already covers installs).
+	 * could keep running the pre-update code.
 	 */
 	private clearExtensionFactories(): void {
-		const maybe = sdk as unknown as { clearExtensionCache?: () => void };
-		maybe.clearExtensionCache?.();
+		sdk.clearExtensionCache();
 	}
 
 	/** Configured packages from the base settings.json (sync SDK call). */
