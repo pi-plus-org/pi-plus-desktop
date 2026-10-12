@@ -12,6 +12,7 @@ const isMac = process.platform === "darwin";
 
 export function buildApplicationMenu(
 	openSettings: () => void,
+	openPackages: () => void,
 	getActionTarget: () => WebContents | undefined,
 ): void {
 	const send = (action: MenuActionDTO): void => {
@@ -29,6 +30,7 @@ export function buildApplicationMenu(
 							{ role: "about" },
 							{ type: "separator" },
 							{ label: "Settings…", accelerator: "Command+,", click: () => openSettings() },
+						{ label: "Packages…", accelerator: "CmdOrCtrl+Shift+P", click: () => openPackages() },
 							{ type: "separator" },
 							{ role: "services" },
 							{ type: "separator" },
@@ -64,8 +66,11 @@ export function buildApplicationMenu(
 				},
 				// Off-macOS has no app menu; keep Settings reachable from File.
 				...(!isMac
-					? ([{ label: "Settings", accelerator: "CmdOrCtrl+,", click: () => openSettings() }] as MenuItemConstructorOptions[])
-					: []),
+					? ([
+						{ label: "Settings", accelerator: "CmdOrCtrl+,", click: () => openSettings() },
+						{ label: "Packages", accelerator: "CmdOrCtrl+Shift+P", click: () => openPackages() },
+					] as MenuItemConstructorOptions[])
+				: []),
 				{ type: "separator" },
 				{ role: "close", accelerator: "CmdOrCtrl+Shift+W" },
 				...(!isMac ? ([{ role: "quit" }] as MenuItemConstructorOptions[]) : []),

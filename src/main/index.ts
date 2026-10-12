@@ -12,9 +12,10 @@ import { isImagePath } from "../shared/attachments.ts";
 import { IPC, type CompactionPatch, type DirEntryDTO, type ListDirResultDTO, type PermissionMode, type ProfileDTO, type ThemeMode } from "../shared/ipc-types.ts";
 import { LoginBridge } from "./auth-bridge.ts";
 import { DialogBridge } from "./dialogs.ts";
-import { listAvailableEditors, openInEditor } from "./editor.ts";
+import { EXTRA_BIN_DIRS, listAvailableEditors, openInEditor } from "./editor.ts";
 import { buildApplicationMenu } from "./menu.ts";
 import { ProfileStore } from "./profiles.ts";
+import { PackageStore } from "./packages.ts";
 import { AppSettings } from "./settings.ts";
 import { SessionHost } from "./session-host.ts";
 
@@ -59,10 +60,23 @@ const settings = new AppSettings();
 settings.load();
 nativeTheme.themeSource = settings.theme;
 
+// A GUI launch (Finder/Dock) inherits a minimal PATH that excludes the CLI
+// install dirs, which breaks SDK child spawns (npm/git/npx run by the package
+// maintenance APIs). Prepend the well-known bin dirs that are missing — same
+// rationale as EXTRA_BIN_DIRS in editor.ts, but process-wide.
+{
+	const sep = process.platform === "win32" ? ";" : ":";
+	const dirs = (process.env.PATH ?? "").split(sep).filter(Boolean);
+	for (const dir of [...EXTRA_BIN_DIRS].reverse()) if (!dirs.includes(dir)) dirs.unshift(dir);
+	process.env.PATH = dirs.join(sep);
+}
+
 // Single main window: one WebContents serves every tab, keyed by tabId.
 // The Settings window is a separate top-level window.
 let mainWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
+/** Packages maintenance window (app menu → Packages…); independent of Settings. */
+let packagesWindow: BrowserWindow | null = null;
 
 // App icon: dist/assets (dev / plain build) or Resources/assets (packaged .app).
 function appIcon(): Electron.NativeImage | undefined {
@@ -89,6 +103,12 @@ const loginBridge = new LoginBridge(
 	() => (settingsWindow && !settingsWindow.isDestroyed() ? settingsWindow.webContents : undefined),
 	profileStore,
 );
+
+// Package operations (Settings → Packages pane) push live progress events to
+// every window; only the Settings pane consumes them.
+const packageStore = new PackageStore((event) => {
+	for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IPC.push.packagesProgress, event);
+});
 
 const webPreferences = {
 	preload: path.join(__dirname, "preload.cjs"),
@@ -133,6 +153,27 @@ function openSettingsWindow(): void {
 		settingsWindow = null;
 		// Login flows answer from this window; abort them rather than hang.
 		loginBridge.cancelAll();
+	});
+}
+
+/** Standalone package maintenance window (app menu → Packages…, ⌘⇧,). */
+function openPackagesWindow(): void {
+	if (packagesWindow && !packagesWindow.isDestroyed()) {
+		packagesWindow.focus();
+		return;
+	}
+	packagesWindow = new BrowserWindow({
+		width: 640,
+		height: 600,
+		minWidth: 480,
+		minHeight: 400,
+		title: "Packages",
+		icon: appIcon(),
+		webPreferences,
+	});
+	packagesWindow.loadFile(path.join(__dirname, "renderer/packages.html"));
+	packagesWindow.on("closed", () => {
+		packagesWindow = null;
 	});
 }
 
@@ -366,6 +407,13 @@ function registerIpc(): void {
 	ipcMain.on(IPC.invoke.respondAuthPrompt, (_e, requestId: string, value: string | null) => {
 		loginBridge.respond(requestId, value);
 	});
+
+	// Packages (Settings → Packages pane). Mutations resolve to the fresh list.
+	ipcMain.handle(IPC.invoke.packagesList, () => packageStore.list());
+	ipcMain.handle(IPC.invoke.packagesInstall, (_e, source: string) => packageStore.install(source));
+	ipcMain.handle(IPC.invoke.packagesRemove, (_e, source: string) => packageStore.remove(source));
+	ipcMain.handle(IPC.invoke.packagesUpdate, (_e, source?: string) => packageStore.update(source));
+	ipcMain.handle(IPC.invoke.packagesTools, () => packageStore.checkTools());
 }
 
 // Dev runner (scripts/dev.mjs) signals renderer/preload rebuilds via SIGUSR1.
@@ -375,7 +423,11 @@ process.on("SIGUSR1", () => {
 
 app.whenReady().then(() => {
 	registerIpc();
-	buildApplicationMenu(openSettingsWindow, () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : undefined));
+	buildApplicationMenu(
+		() => openSettingsWindow(),
+		() => openPackagesWindow(),
+		() => (mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : undefined),
+	);
 	// Unpackaged runs get a generic Electron Dock icon; replace it with ours.
 	if (process.platform === "darwin" && !app.isPackaged) {
 		const icon = appIcon();

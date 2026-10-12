@@ -1694,6 +1694,65 @@ body {
 	text-overflow: ellipsis;
 }
 
+/* Packages pane — cards are divs (not buttons) so long git URLs wrap instead
+   of ellipsizing away, with per-card Update / Remove actions at the bottom. */
+.package-card {
+	cursor: default;
+}
+
+.package-card-name {
+	white-space: normal;
+	word-break: break-all;
+	flex: 1;
+}
+
+.pkg-badge {
+	flex: none;
+	font-size: 11px;
+	color: var(--text-dim);
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	padding: 1px 8px;
+}
+
+.pkg-badge-filtered {
+	color: var(--text-dim);
+	border-style: dashed;
+}
+
+/* npm/git availability probes in the Packages toolbar. */
+.pkg-tool-badge {
+	align-self: center;
+}
+
+.pkg-badge-missing {
+	color: var(--danger);
+	border-color: var(--danger);
+	border-style: dashed;
+}
+
+.package-card-actions {
+	display: flex;
+	gap: 6px;
+	margin-top: auto;
+}
+
+.package-card-actions .dialog-btn {
+	font-size: 12px;
+	padding: 3px 10px;
+}
+
+.package-status {
+	padding: 2px 2px 0;
+	font-size: 12px;
+	font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+	color: var(--text-dim);
+}
+
+.package-status-error {
+	color: var(--danger);
+}
+
 .settings-card-head {
 	display: flex;
 	align-items: center;

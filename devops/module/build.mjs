@@ -43,14 +43,18 @@ const targets = [
 	},
 	{
 		...common,
-		entryPoints: ["src/renderer/src/main.ts", { in: "src/renderer/src/settings-app.ts", out: "settings" }],
+		entryPoints: [
+			"src/renderer/src/main.ts",
+			{ in: "src/renderer/src/settings-app.ts", out: "settings" },
+			{ in: "src/renderer/src/packages-app.ts", out: "packages" },
+		],
 		outdir: "dist/renderer",
 		format: "esm",
 		platform: "browser",
 	},
 	{
 		...common,
-		entryPoints: ["src/renderer/index.html", "src/renderer/settings.html"],
+		entryPoints: ["src/renderer/index.html", "src/renderer/settings.html", "src/renderer/packages.html"],
 		outdir: "dist/renderer",
 		format: "esm",
 		platform: "browser",
