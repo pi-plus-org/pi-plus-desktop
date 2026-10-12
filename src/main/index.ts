@@ -21,6 +21,25 @@ import { SessionHost } from "./session-host.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Extensions that shell out to node-style scripts via `process.execPath`
+// (e.g. pi-browser-use spawning its chrome-devtools-mcp server) assume the
+// host process is a plain node binary. Under Electron, execPath is the GUI
+// binary and such spawns boot a full app instance (Dock icon flash + the
+// child dies when the expected stdio protocol never speaks). Those packages
+// honor PI_BROWSER_USE_NODE to override the executable, so point it at a real
+// node binary. Probe the well-known bin dirs: Dock-launched apps get a
+// minimal PATH, so a PATH-only lookup under-detects (same rationale as
+// EXTRA_BIN_DIRS in editor.ts).
+if (typeof process.versions.electron === "string" && !process.env.PI_BROWSER_USE_NODE) {
+	for (const dir of [...EXTRA_BIN_DIRS, "/bin"]) {
+		const candidate = path.join(dir, "node");
+		if (existsSync(candidate)) {
+			process.env.PI_BROWSER_USE_NODE = candidate;
+			break;
+		}
+	}
+}
+
 // Keys mirror IMAGE_EXTENSIONS in shared/attachments.ts (isImagePath gate above).
 const MAX_PREVIEW_IMAGE_BYTES = 10 * 1024 * 1024;
 // Dropped/pasted payloads without a filesystem path are persisted before they
@@ -439,7 +458,29 @@ process.on("SIGUSR1", () => {
 	for (const win of BrowserWindow.getAllWindows()) win.webContents.reload();
 });
 
+// Single-instance guard for the packaged app. Some SDK paths can relaunch the
+// host binary (the plus-api session-runtime docstring warns that tool
+// invocation candidates "can relaunch the host itself"), and package updates
+// were observed spawning extra full app instances. A failed lock quits
+// immediately; a second-instance activation focuses the running window.
+// Dev runs (`npm run dev`) are exempt: the dev runner SIGTERMs the previous
+// electron and respawns it, which can overlap the lock handoff.
+const gotSingleInstanceLock = !app.isPackaged || app.requestSingleInstanceLock();
+if (gotSingleInstanceLock) {
+	app.on("second-instance", () => {
+		if (mainWindow && !mainWindow.isDestroyed()) {
+			if (mainWindow.isMinimized()) mainWindow.restore();
+			mainWindow.show();
+			mainWindow.focus();
+		}
+	});
+} else {
+	// Duplicate launch — the running instance takes over; this one exits.
+	app.quit();
+}
+
 app.whenReady().then(() => {
+	if (!gotSingleInstanceLock) return;
 	registerIpc();
 	buildApplicationMenu(
 		() => openSettingsWindow(),
