@@ -16,7 +16,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { app } from "electron";
 import type { SettingsManager } from "pi-plus-sdk";
-import type { PermissionMode, ThemeMode } from "../shared/ipc-types.ts";
+import type { PackageToolSettingDTO, PackageToolsSettingsDTO, PermissionMode, ThemeMode } from "../shared/ipc-types.ts";
 
 // Imported dynamically so the sdk-shim module above installs the global
 // require before pi-plus-sdk's ESM bundle evaluates (static external imports
@@ -29,6 +29,11 @@ const { getAgentDir, readPiPlusSettings, updatePiPlusSettings } = sdk;
 const THEME_MODES: ThemeMode[] = ["system", "light", "dark"];
 const PERMISSION_MODES: PermissionMode[] = ["bypass", "acceptEdits", "plan"];
 
+const DEFAULT_PACKAGE_TOOLS: PackageToolsSettingsDTO = {
+	npm: { mode: "auto", path: "" },
+	git: { mode: "auto", path: "" },
+};
+
 function asTheme(value: unknown): ThemeMode | undefined {
 	return typeof value === "string" && THEME_MODES.includes(value as ThemeMode) ? (value as ThemeMode) : undefined;
 }
@@ -39,6 +44,25 @@ function asPermissionMode(value: unknown): PermissionMode | undefined {
 
 function asWidth(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/** Validate one piPlus `packageTools` entry; anything malformed falls back to auto. */
+function asPackageToolSetting(value: unknown): PackageToolSettingDTO | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const { mode, path } = value as { mode?: unknown; path?: unknown };
+	if (mode !== "auto" && mode !== "manual") return undefined;
+	return { mode, path: typeof path === "string" ? path : "" };
+}
+
+/** Validate the whole piPlus `packageTools` block; partial/missing tools default to auto. */
+function asPackageTools(value: unknown): PackageToolsSettingsDTO | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const { npm, git } = value as { npm?: unknown; git?: unknown };
+	if (npm === undefined && git === undefined) return undefined;
+	return {
+		npm: asPackageToolSetting(npm) ?? { mode: "auto", path: "" },
+		git: asPackageToolSetting(git) ?? { mode: "auto", path: "" },
+	};
 }
 
 /** Shape of the retired userData/settings.json (only for the one-time migration). */
@@ -60,11 +84,13 @@ export class AppSettings {
 	private _filetreeWidth = 240;
 	/** Permission mode new tabs start with (Settings → Permissions). */
 	private _defaultPermissionMode: PermissionMode = "bypass";
+	/** npm/git install-tool locations (auto-detect on PATH, or a manual binary path). */
+	private _packageTools: PackageToolsSettingsDTO = DEFAULT_PACKAGE_TOOLS;
 
 	// Setters mark dirty; save() persists only the touched fields (per store)
 	// and clears the flags. load() writes the caches directly, so a fresh read
 	// is never re-persisted.
-	private dirty = { theme: false, editor: false, sidebarWidth: false, filetreeWidth: false, defaultPermissionMode: false };
+	private dirty = { theme: false, editor: false, sidebarWidth: false, filetreeWidth: false, defaultPermissionMode: false, packageTools: false };
 	private editorManager: SettingsManager | null = null;
 
 	get theme(): ThemeMode {
@@ -117,6 +143,27 @@ export class AppSettings {
 		}
 	}
 
+	get packageTools(): PackageToolsSettingsDTO {
+		return this._packageTools;
+	}
+	/** Merge a per-tool patch (validated by the IPC layer); marks dirty when changed. */
+	set packageTools(patch: Partial<PackageToolsSettingsDTO>) {
+		const next: PackageToolsSettingsDTO = { ...this._packageTools };
+		for (const tool of ["npm", "git"] as const) {
+			const setting = patch[tool];
+			if (!setting) continue;
+			const normalized: PackageToolSettingDTO = {
+				mode: setting.mode === "manual" ? "manual" : "auto",
+				path: setting.mode === "manual" ? setting.path.trim() : "",
+			};
+			if (normalized.mode !== next[tool].mode || normalized.path !== next[tool].path) {
+				next[tool] = normalized;
+				this.dirty.packageTools = true;
+			}
+		}
+		this._packageTools = next;
+	}
+
 	/**
 	 * Shared SettingsManager over the base agent dir: the desktop never sets
 	 * PI_CODING_AGENT_DIR, so getAgentDir() is ~/.pi/agent, and the SDK's
@@ -136,6 +183,7 @@ export class AppSettings {
 		this._sidebarWidth = asWidth(block.sidebarWidth) ?? this._sidebarWidth;
 		this._filetreeWidth = asWidth(block.filetreeWidth) ?? this._filetreeWidth;
 		this._defaultPermissionMode = asPermissionMode(block.defaultPermissionMode) ?? this._defaultPermissionMode;
+		this._packageTools = asPackageTools(block.packageTools) ?? this._packageTools;
 		// Raw persisted value (no $VISUAL/$EDITOR fallback) — resolveEditorCommand
 		// in editor.ts applies the fallback at spawn time, as before.
 		this._editor = this.editors().getExternalEditorSetting() ?? "";
@@ -149,6 +197,7 @@ export class AppSettings {
 		if (this.dirty.sidebarWidth) patch.sidebarWidth = this._sidebarWidth;
 		if (this.dirty.filetreeWidth) patch.filetreeWidth = this._filetreeWidth;
 		if (this.dirty.defaultPermissionMode) patch.defaultPermissionMode = this._defaultPermissionMode;
+		if (this.dirty.packageTools) patch.packageTools = this._packageTools;
 		if (Object.keys(patch).length > 0) {
 			// Sync + locked merge in the SDK store; a throw keeps the flags dirty
 			// so the next save retries.
@@ -157,6 +206,7 @@ export class AppSettings {
 			this.dirty.sidebarWidth = false;
 			this.dirty.filetreeWidth = false;
 			this.dirty.defaultPermissionMode = false;
+			this.dirty.packageTools = false;
 		}
 		if (this.dirty.editor) {
 			this.dirty.editor = false;

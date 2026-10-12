@@ -58,6 +58,7 @@ const api: PiApi = {
 	setSidebarWidth: (width) => ipcRenderer.invoke(IPC.invoke.setSidebarWidth, width),
 	setFiletreeWidth: (width) => ipcRenderer.invoke(IPC.invoke.setFiletreeWidth, width),
 	setDefaultPermissionMode: (mode) => ipcRenderer.invoke(IPC.invoke.setDefaultPermissionMode, mode),
+	setPackageTools: (patch) => ipcRenderer.invoke(IPC.invoke.setPackageTools, patch),
 	openInEditor: (text) => ipcRenderer.invoke(IPC.invoke.openInEditor, text),
 	getCompactionSettings: () => ipcRenderer.invoke(IPC.invoke.getCompaction),
 	setCompactionSettings: (patch) => ipcRenderer.invoke(IPC.invoke.setCompaction, patch),

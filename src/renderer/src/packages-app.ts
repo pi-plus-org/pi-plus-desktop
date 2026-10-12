@@ -12,7 +12,7 @@
  * to the fresh package list, which re-renders the grid.
  */
 import "../styles.css";
-import type { PackageDTO } from "../../shared/ipc-types.ts";
+import type { PackageDTO, PackageToolsSettingsDTO } from "../../shared/ipc-types.ts";
 
 function el(tag: string, className?: string, text?: string): HTMLElement {
 	const node = document.createElement(tag);
@@ -69,8 +69,8 @@ function classifySource(source: string): { cls: SourceClass; error?: string } {
 }
 
 const TOOL_HINTS = {
-	npm: "npm is not available on this machine — npm packages can't be installed. Install Node.js (https://nodejs.org or `brew install node`), restart the app, and try again.",
-	git: "git is not available on this machine — git packages can't be installed. Install git (`xcode-select --install` or https://git-scm.com), restart the app, and try again.",
+	npm: "npm isn't available on this machine — npm packages can't be installed. Install Node.js (https://nodejs.org or `brew install node`), or set a manual npm path in the Package tools section, then retry.",
+	git: "git isn't available on this machine — git packages can't be installed. Install git (`xcode-select --install` or https://git-scm.com), or set a manual git path in the Package tools section, then retry.",
 } as const;
 
 function init(): void {
@@ -92,13 +92,27 @@ function init(): void {
 	const pkgToolbar = el("div", "settings-toolbar");
 	const pkgAddBtn = el("button", "dialog-btn dialog-btn-primary", "Add package") as HTMLButtonElement;
 	const pkgUpdateAllBtn = el("button", "dialog-btn", "Update all") as HTMLButtonElement;
-	// npm/git availability badges — probed main-side on the startup-repaired PATH.
-	const npmBadge = el("span", "pkg-badge pkg-tool-badge", "npm");
-	const gitBadge = el("span", "pkg-badge pkg-tool-badge", "git");
-	pkgToolbar.append(pkgAddBtn, el("div", "settings-toolbar-spacer"), npmBadge, gitBadge, pkgUpdateAllBtn);
+	pkgToolbar.append(pkgAddBtn, el("div", "settings-toolbar-spacer"), pkgUpdateAllBtn);
 	const pkgStatus = el("div", "package-status"); // hidden while empty
 	const packagesGrid = el("div", "settings-grid");
 	content.append(pkgToolbar, pkgStatus, packagesGrid);
+
+	// Package tools section: where npm/git live (auto-detect on PATH or a manual
+	// binary path) with a live resolved/missing status per tool.
+	content.append(el("div", "settings-section-title", "Package tools"));
+	content.append(
+		el(
+			"div",
+			"settings-hint",
+			"Installing npm or git packages shells out to these tools. Auto-detect finds them on PATH; Manual lets you point at a specific binary (its directory is used to run installs).",
+		),
+	);
+	const pkgToolGrid = el("div", "settings-grid");
+	const toolStatusEls: Record<"npm" | "git", HTMLDivElement> = {
+		npm: el("div", "pkg-tool-status") as HTMLDivElement,
+		git: el("div", "pkg-tool-status") as HTMLDivElement,
+	};
+	content.append(pkgToolGrid);
 
 	let pkgBusy = false; // a mutation is running — buttons disabled
 	let pkgLoaded = false;
@@ -192,17 +206,78 @@ function init(): void {
 			});
 	};
 
-	const renderToolBadges = (): void => {
-		for (const [badge, tool] of [
-			[npmBadge, "npm"],
-			[gitBadge, "git"],
-		] as const) {
-			const available = pkgTools === null ? true : pkgTools[tool] !== null; // unknown = assume ok
-			badge.classList.toggle("pkg-badge-missing", !available);
-			badge.textContent = tool;
-			badge.title = available
-				? `${tool} — ${pkgTools?.[tool] ?? "available"}`
-				: `${tool} not found on PATH — ${tool} packages can't be installed. ${TOOL_HINTS[tool].split("—")[1]?.trim() ?? ""}`;
+	let pkgToolSettings: PackageToolsSettingsDTO | null = null;
+
+	const renderToolStatus = (): void => {
+		for (const tool of ["npm", "git"] as const) {
+			const status = toolStatusEls[tool];
+			const resolved = pkgTools?.[tool];
+			if (resolved) {
+				status.textContent = `Using ${resolved}`;
+				status.classList.remove("pkg-tool-status-missing");
+			} else if (pkgTools === null) {
+				status.textContent = "Checking…";
+				status.classList.remove("pkg-tool-status-missing");
+			} else {
+				status.textContent = `Not found — ${tool} packages can't be installed until a valid ${tool} is located.`;
+				status.classList.add("pkg-tool-status-missing");
+			}
+		}
+	};
+
+	const renderToolRows = (): void => {
+		pkgToolGrid.replaceChildren();
+		for (const tool of ["npm", "git"] as const) {
+			const setting = pkgToolSettings?.[tool] ?? { mode: "auto" as const, path: "" };
+			const card = el("div", "settings-card");
+			const head = el("div", "settings-card-head");
+			head.append(el("span", "settings-card-name package-card-name", tool));
+			card.append(head);
+			const modeRow = el("label", "form-row");
+			modeRow.append(el("span", "form-label", "Location"));
+			const select = el("select", "form-input") as HTMLSelectElement;
+			for (const [value, label] of [
+				["auto", "Auto-detect (PATH)"],
+				["manual", "Manual path"],
+			] as const) {
+				const option = el("option", undefined, label) as HTMLOptionElement;
+				option.value = value;
+				select.append(option);
+			}
+			select.value = setting.mode;
+			modeRow.append(select);
+			card.append(modeRow);
+			const pathRow = el("label", "form-row");
+			pathRow.append(el("span", "form-label", "Path"));
+			const input = el("input", "form-input") as HTMLInputElement;
+			input.placeholder = `/path/to/${tool}`;
+			input.value = setting.path;
+			input.disabled = setting.mode !== "manual";
+			pathRow.append(input);
+			card.append(pathRow);
+			card.append(toolStatusEls[tool]);
+			pkgToolGrid.append(card);
+
+			// Persist the setting main-side (piPlus block), then re-probe with the
+			// new config so the status row and Add-dialog gating reflect it.
+			const save = (next: { mode: "auto" | "manual"; path: string }): void => {
+				pkgToolSettings = { ...pkgToolSettings, [tool]: next } as PackageToolsSettingsDTO;
+				window.pi.setPackageTools({ [tool]: next }).then(
+					() => refreshTools(),
+					(err) => setPkgStatus(errorMessage(err), "error"),
+				);
+			};
+			let pathSaveTimer: ReturnType<typeof setTimeout> | undefined;
+			select.addEventListener("change", () => {
+				const mode = select.value === "manual" ? "manual" : "auto";
+				input.disabled = mode !== "manual";
+				save({ mode, path: mode === "manual" ? input.value.trim() : "" });
+			});
+			input.addEventListener("input", () => {
+				if (input.disabled) return;
+				clearTimeout(pathSaveTimer);
+				pathSaveTimer = setTimeout(() => save({ mode: "manual", path: input.value.trim() }), 400);
+			});
 		}
 	};
 
@@ -211,10 +286,23 @@ function init(): void {
 			.checkPackageTools()
 			.then((tools) => {
 				pkgTools = tools;
-				renderToolBadges();
+				renderToolStatus();
 				if (pkgList !== null) renderPackages(pkgList); // re-gate per-card buttons
 			})
 			.catch((err) => console.warn("[packages] checkPackageTools failed", err));
+	};
+
+	const loadToolSettings = (): void => {
+		void window.pi.getSettings().then(
+			(settings) => {
+				pkgToolSettings =
+					settings.packageTools ??
+					({ npm: { mode: "auto", path: "" }, git: { mode: "auto", path: "" } } satisfies PackageToolsSettingsDTO);
+				renderToolRows();
+				refreshTools();
+			},
+			(err) => console.warn("[packages] getSettings failed", err),
+		);
 	};
 
 	const openAddPackageDialog = (): void => {
@@ -229,6 +317,17 @@ function init(): void {
 		input.placeholder = "npm:@scope/pkg, github.com/user/repo, or ./local/path";
 		row.append(input);
 		const errorRow = el("div", "form-error");
+		// Live warning below the input when the entered source needs a tool that
+		// isn't available (npm/git missing or a bad manual path).
+		const warnRow = el("div", "form-error");
+		const syncWarn = (): void => {
+			const { cls } = classifySource(input.value.trim());
+			warnRow.textContent = cls !== "local" && pkgTools !== null && !pkgTools[cls] ? TOOL_HINTS[cls] : "";
+		};
+		input.addEventListener("input", () => {
+			errorRow.textContent = "";
+			syncWarn();
+		});
 		const buttons = el("div", "dialog-buttons");
 		const install = el("button", "dialog-btn dialog-btn-primary", "Install");
 		const cancel = el("button", "dialog-btn", "Cancel");
@@ -245,6 +344,7 @@ function init(): void {
 			}
 			if (cls !== "local" && pkgTools !== null && !pkgTools[cls]) {
 				errorRow.textContent = TOOL_HINTS[cls];
+				syncWarn();
 				return;
 			}
 			overlay.remove();
@@ -257,7 +357,7 @@ function init(): void {
 		});
 		cancel.addEventListener("click", () => overlay.remove());
 		buttons.append(install, cancel);
-		box.append(row, errorRow, buttons);
+		box.append(row, warnRow, errorRow, buttons);
 		overlay.append(box);
 		overlay.addEventListener("mousedown", (e) => {
 			if (e.target === overlay) overlay.remove();
@@ -299,6 +399,8 @@ function init(): void {
 
 	refreshPackages();
 	refreshTools();
+	renderToolRows(); // defaults until loadToolSettings replaces them with the persisted config
+	loadToolSettings();
 	// Re-list and re-probe tools when the window regains focus (e.g. after the
 	// user installs Node/git and restarts... or runs `pipi` alongside).
 	window.addEventListener("focus", () => {

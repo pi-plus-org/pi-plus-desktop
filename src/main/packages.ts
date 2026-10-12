@@ -66,6 +66,46 @@ function findOnPath(bin: string): string | null {
 	return null;
 }
 
+interface ToolSetting {
+	mode: "auto" | "manual";
+	path: string;
+}
+
+/** Read the piPlus `packageTools` block the settings layer persists (defensive parse). */
+function toolSettings(): Record<"npm" | "git", ToolSetting> {
+	const block = sdk.readPiPlusSettings().packageTools as { npm?: unknown; git?: unknown } | undefined;
+	const parse = (value: unknown): ToolSetting => {
+		if (typeof value === "object" && value !== null) {
+			const { mode, path: toolPath } = value as { mode?: unknown; path?: unknown };
+			if (mode === "manual" && typeof toolPath === "string" && toolPath.trim() !== "") {
+				return { mode: "manual", path: toolPath.trim() };
+			}
+		}
+		return { mode: "auto", path: "" };
+	};
+	return { npm: parse(block?.npm), git: parse(block?.git) };
+}
+
+/**
+ * Resolve one tool honoring its setting: manual mode checks the configured
+ * binary path itself (win32: .exe/.cmd variants when it has no extension),
+ * auto mode probes PATH.
+ */
+function resolveTool(bin: "npm" | "git"): string | null {
+	const setting = toolSettings()[bin];
+	if (setting.mode === "manual") {
+		const candidates =
+			process.platform === "win32" && !/\.(exe|cmd)$/i.test(setting.path)
+				? [setting.path, `${setting.path}.exe`, `${setting.path}.cmd`]
+				: [setting.path];
+		for (const candidate of candidates) {
+			if (existsSync(candidate)) return candidate;
+		}
+		return null;
+	}
+	return findOnPath(bin);
+}
+
 export class PackageStore {
 	/** Serializes install/remove/update so concurrent ops can never interleave. */
 	private queue: Promise<unknown> = Promise.resolve();
@@ -84,10 +124,11 @@ export class PackageStore {
 
 	/**
 	 * Absolute paths of the CLI tools package ops shell out to (npm/git), or
-	 * null when unavailable — the renderer shows these and gates inputs.
+	 * null when unavailable — the renderer gates inputs on these. Honors the
+	 * per-tool location setting (auto PATH probe vs. manual binary path).
 	 */
 	checkTools(): { npm: string | null; git: string | null } {
-		return { npm: findOnPath("npm"), git: findOnPath("git") };
+		return { npm: resolveTool("npm"), git: resolveTool("git") };
 	}
 
 	/** Adds the source, installs it, and resolves to the fresh list. */
@@ -132,9 +173,34 @@ export class PackageStore {
 		});
 	}
 
+	/**
+	 * Manual tool locations must be visible to the child processes the SDK
+	 * spawns (npm's shebang also needs node, which usually sits next to npm) —
+	 * so prepend their directories to PATH for the duration of an op. The queue
+	 * serializes ops, which makes mutating the process env here race-free.
+	 */
+	private async withManualToolPath<T>(op: () => Promise<T>): Promise<T> {
+		const dirs: string[] = [];
+		for (const tool of ["npm", "git"] as const) {
+			const setting = toolSettings()[tool];
+			if (setting.mode === "manual") {
+				const resolved = resolveTool(tool);
+				if (resolved) dirs.push(path.dirname(resolved)); // missing binary adds nothing
+			}
+		}
+		if (dirs.length === 0) return op();
+		const oldPath = process.env.PATH;
+		process.env.PATH = [...new Set(dirs), oldPath ?? ""].join(path.delimiter);
+		try {
+			return await op();
+		} finally {
+			process.env.PATH = oldPath;
+		}
+	}
+
 	/** Tail-chain mutex shared by all three mutations. */
 	private enqueue<T>(op: () => Promise<T>): Promise<T> {
-		const next = this.queue.then(op, op);
+		const next = this.queue.then(() => this.withManualToolPath(op), () => this.withManualToolPath(op));
 		this.queue = next.then(
 			() => undefined,
 			() => undefined,

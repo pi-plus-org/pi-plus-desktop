@@ -329,6 +329,22 @@ export interface ListDirResultDTO {
 export type ThemeMode = "system" | "light" | "dark";
 
 /**
+ * Location of an install tool (npm/git) the package store shells out to:
+ * auto-detect on PATH, or a manually configured binary path.
+ */
+export interface PackageToolSettingDTO {
+	mode: "auto" | "manual";
+	/** Manual mode only: path to the tool binary ("" = unset). */
+	path: string;
+}
+
+/** Per-tool location settings, keyed by tool name. */
+export interface PackageToolsSettingsDTO {
+	npm: PackageToolSettingDTO;
+	git: PackageToolSettingDTO;
+}
+
+/**
  * Desktop chrome preferences, stored in the piPlus block of the base agent
  * settings.json (~/.pi/agent/settings.json) via pi-plus-sdk; `editor` is the
  * upstream `externalEditor` key of that same file (shared with pipi's Ctrl+G).
@@ -343,6 +359,8 @@ export interface AppSettingsDTO {
 	filetreeWidth: number;
 	/** Permission mode new tabs start with (Settings → Permissions). */
 	defaultPermissionMode: PermissionMode;
+	/** npm/git install-tool locations (Packages window → Package tools). */
+	packageTools: PackageToolsSettingsDTO;
 }
 
 /**
@@ -424,6 +442,7 @@ export const IPC = {
 		setSidebarWidth: "settings:setSidebarWidth",
 		setFiletreeWidth: "settings:setFiletreeWidth",
 		setDefaultPermissionMode: "settings:setDefaultPermissionMode",
+		setPackageTools: "settings:setPackageTools",
 		openInEditor: "editor:open",
 		getCompaction: "settings:getCompaction",
 		setCompaction: "settings:setCompaction",
@@ -540,6 +559,8 @@ export interface PiApi {
 	setFiletreeWidth(width: number): Promise<void>;
 	/** Permission mode new tabs start with (Settings → Permissions). */
 	setDefaultPermissionMode(mode: PermissionMode): Promise<void>;
+	/** Persist npm/git tool-location settings (partial patch; see AppSettings). */
+	setPackageTools(patch: Partial<PackageToolsSettingsDTO>): Promise<void>;
 	/**
 	 * Open `text` in the configured editor via a temp file and wait for the
 	 * process to exit; resolves to the edited content (undefined when the file

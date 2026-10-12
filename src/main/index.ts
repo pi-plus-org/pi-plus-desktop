@@ -9,7 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, shell } from "electron";
 import { isImagePath } from "../shared/attachments.ts";
-import { IPC, type CompactionPatch, type DirEntryDTO, type ListDirResultDTO, type PermissionMode, type ProfileDTO, type ThemeMode } from "../shared/ipc-types.ts";
+import { IPC, type CompactionPatch, type DirEntryDTO, type ListDirResultDTO, type PackageToolsSettingsDTO, type PermissionMode, type ProfileDTO, type ThemeMode } from "../shared/ipc-types.ts";
 import { LoginBridge } from "./auth-bridge.ts";
 import { DialogBridge } from "./dialogs.ts";
 import { EXTRA_BIN_DIRS, listAvailableEditors, openInEditor } from "./editor.ts";
@@ -236,7 +236,14 @@ function registerIpc(): void {
 		sidebarWidth: settings.sidebarWidth,
 		filetreeWidth: settings.filetreeWidth,
 		defaultPermissionMode: settings.defaultPermissionMode,
+		packageTools: settings.packageTools,
 	}));
+	ipcMain.handle(IPC.invoke.setPackageTools, async (_e, patch: Partial<PackageToolsSettingsDTO>) => {
+		if (typeof patch === "object" && patch !== null) {
+			settings.packageTools = patch;
+			await settings.save();
+		}
+	});
 	ipcMain.handle(IPC.invoke.setDefaultPermissionMode, async (_e, mode: PermissionMode) => {
 		if (mode === "bypass" || mode === "acceptEdits" || mode === "plan") {
 			settings.defaultPermissionMode = mode;
