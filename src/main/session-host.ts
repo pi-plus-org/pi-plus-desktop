@@ -97,6 +97,16 @@ function modelRefSuffix(ref: string): string {
 	return slash < 0 ? ref : ref.slice(slash + 1);
 }
 
+/**
+ * Headless transcripts — `pipi -p` / rpc runs, scripted SDK embeds — are not
+ * user history: their host stamped `interactive: false` in the session header.
+ * Sessions written before that marker existed (or by a host that never declares
+ * it) stay visible; only an explicit false hides one.
+ */
+function isUserSession(info: SessionInfo): boolean {
+	return info.interactive !== false;
+}
+
 /** SessionInfo (SDK) -> the sidebar row DTO; allMessagesText stays main-side. */
 function toSessionListItem(info: SessionInfo): SessionListItemDTO {
 	return {
@@ -627,15 +637,17 @@ export class SessionHost {
 
 	async listSessions(): Promise<SessionListItemDTO[]> {
 		// Profile agent dirs symlink the shared sessions dir, so the default
-		// listing (source agent dir) sees sessions from every profile.
+		// listing (source agent dir) sees sessions from every profile — including
+		// the ones machine-written headless runs left behind, which are not
+		// user history.
 		const infos = await SessionManager.listAll();
-		return infos.map(toSessionListItem);
+		return infos.filter(isUserSession).map(toSessionListItem);
 	}
 
 	/** SDK-backed search over titles and transcript text (SessionManager.search). */
 	async searchSessions(query: string): Promise<SessionListItemDTO[]> {
 		const infos = await SessionManager.search(query);
-		return infos.map(toSessionListItem);
+		return infos.filter(isUserSession).map(toSessionListItem);
 	}
 
 	/**
