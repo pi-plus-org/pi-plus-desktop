@@ -192,6 +192,9 @@ class Store {
 	applyEnsure(tab: TabState, result: EnsureResult): void {
 		tab.ready = true;
 		this.setTabMeta(tab, result.meta);
+		// Resume may have restored a different profile (transcript-model
+		// inference) — sync the tab badge.
+		if (result.profileName !== undefined) tab.profileName = result.profileName;
 		for (const message of result.messages) {
 			tab.items.push(...messageToItems(message));
 		}

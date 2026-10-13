@@ -102,6 +102,31 @@ export class ProfileStore {
 		return { provider: profile.provider, ids, default: profile.model && ids.includes(profile.model) ? profile.model : ids[0] };
 	}
 
+	/**
+	 * Find the profile whose model list owns a model ref (`provider/modelId`
+	 * or a bare id), using the same scope semantics as the session host's
+	 * enforce-profile-model check. Resume uses this to restore a legacy
+	 * session's profile — transcripts record the model, not the profile.
+	 * Prefers the default profile on ties; null when no profile claims it.
+	 */
+	profileForModel(modelRef: string): string | null {
+		const data = loadProfiles();
+		const owns = (name: string): boolean => {
+			const profile = data.profiles[name];
+			if (!profile) return false;
+			const ids = profile.models?.length ? profile.models : profile.model ? [profile.model] : [];
+			if (ids.length === 0) return false;
+			if (profile.provider) return ids.some((id) => `${profile.provider}/${id}` === modelRef);
+			const suffix = modelRef.slice(modelRef.lastIndexOf("/") + 1);
+			return ids.some((id) => id === suffix);
+		};
+		if (data.default && owns(data.default)) return data.default;
+		for (const name of Object.keys(data.profiles)) {
+			if (owns(name)) return name;
+		}
+		return null;
+	}
+
 	/** Resolve the agent dir for a tab: materialized profile dir or the source agent dir. */
 	resolveAgentDir(profileName: string | null): { agentDir: string; error?: string } {
 		if (!profileName) return { agentDir: AGENT_DIR };

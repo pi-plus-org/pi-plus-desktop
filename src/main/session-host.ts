@@ -64,6 +64,7 @@ type SessionManagerSurface = (typeof sdk)["SessionManager"] & {
 	deleteSession(filePath: string): boolean;
 };
 const SessionManager = sdk.SessionManager as SessionManagerSurface;
+type SessionManagerInstance = ReturnType<SessionManagerSurface["open"]>;
 type PlusAgentSession = AgentSession & { getSlashCommands(): SlashCommandInfo[] };
 
 interface TabHandle {
@@ -183,7 +184,11 @@ export class SessionHost {
 	 * session is rebuilt around that transcript (messages + model/thinking are
 	 * restored from disk by the SDK).
 	 */
-	async ensureSession(tabId: string, resumePath?: string): Promise<EnsureResult> {
+	async ensureSession(
+		tabId: string,
+		resumePath?: string,
+		opts?: { skipProfileRestore?: boolean },
+	): Promise<EnsureResult> {
 		const tab = this.getTab(tabId);
 		if (tab.runtime) {
 			return this.describe(tab);
@@ -191,6 +196,14 @@ export class SessionHost {
 
 		const sessionManager = resumePath ? SessionManager.open(resumePath, undefined, tab.cwd) : undefined;
 		if (sessionManager) tab.cwd = sessionManager.getCwd();
+
+		// Resume-time profile restoration: legacy transcripts don't record a
+		// profile, only the model. If the tab's current profile doesn't own the
+		// transcript's model, switch the tab to the profile that does before the
+		// runtime is created (agentDir drives auth/extensions). Returns the new
+		// profile name for the renderer's tab badge.
+		const restoredProfileName =
+			sessionManager && !opts?.skipProfileRestore ? this.restoreProfileFromTranscript(tab, sessionManager) : null;
 
 		let runtime: AgentSessionRuntime;
 		try {
@@ -242,7 +255,43 @@ export class SessionHost {
 		const result = this.describe(tab);
 		const notices = [runtime.modelFallbackMessage, profileModelNotice].filter(Boolean);
 		result.modelFallbackMessage = notices.length ? notices.join(". ") : undefined;
+		if (restoredProfileName) result.profileName = restoredProfileName;
 		return result;
+	}
+
+	/**
+	 * Resume-time profile restoration. Transcripts record the model, not the
+	 * profile that produced them, so match the transcript's model against the
+	 * profiles' model lists: when the tab's current profile doesn't own it,
+	 * switch the tab (profile name + agent dir) to the owning profile before
+	 * the runtime is created. No-op when the current profile fits, the tab is
+	 * unprofiled, or no profile claims the model. Returns the new profile
+	 * name, or null.
+	 */
+	private restoreProfileFromTranscript(tab: TabHandle, sessionManager: SessionManagerInstance): string | null {
+		let model: { provider: string; modelId: string } | null = null;
+		try {
+			model = sessionManager.buildSessionContext().model;
+		} catch {
+			// Unreadable/corrupt transcript — keep the current profile.
+		}
+		if (!model?.modelId) return null;
+		const currentRef = model.provider ? `${model.provider}/${model.modelId}` : model.modelId;
+		const scope = this.profiles.profileModels(tab.profileName);
+		// Unprofiled tabs / profiles without a model list see the full snapshot
+		// (no enforcement) — nothing to restore.
+		if (!scope || scope.ids.length === 0) return null;
+		const inScope = scope.provider
+			? scope.ids.some((id) => `${scope.provider}/${id}` === currentRef)
+			: scope.ids.some((id) => modelRefSuffix(currentRef) === id);
+		if (inScope) return null;
+		const owner = this.profiles.profileForModel(currentRef);
+		if (!owner || owner === tab.profileName) return null;
+		tab.profileName = owner;
+		const { agentDir, error } = this.profiles.resolveAgentDir(owner);
+		tab.agentDir = agentDir;
+		tab.agentDirWarning = error;
+		return owner;
 	}
 
 	/**
@@ -610,15 +659,21 @@ export class SessionHost {
 	}
 
 	/**
-	 * Switch the tab to a different profile. The runtime is disposed and a
-	 * fresh session starts under the new agent dir right away (like the
-	 * other session-replacing capabilities: returns the full snapshot), so
-	 * the status line shows that profile's default model instead of keeping
-	 * the disposed session's. Prior sessions stay reachable through the
-	 * history sidebar.
+	 * Switch the tab to a different profile. The runtime is disposed and
+	 * recreated under the new agent dir (like the other session-replacing
+	 * capabilities: returns the full snapshot). The current transcript
+	 * survives the switch — the sessions dir is shared across profiles, so
+	 * the new runtime resumes the same session file and enforceProfileModel
+	 * settles the model into the new profile's scope when needed. A session
+	 * without a file yet (nothing persisted) starts fresh, same as before.
+	 * Profile restoration is suppressed here: the user picked this profile
+	 * explicitly, so it must not be second-guessed from the transcript model.
 	 */
 	async setProfile(tabId: string, profileName: string | null): Promise<EnsureResult> {
 		const tab = this.getTab(tabId);
+		// Capture before destroyTab disposes the runtime (the disposal flushes
+		// the transcript, so the file is current by the time we resume it).
+		const sessionFile = tab.runtime?.session.sessionFile ?? null;
 		await this.destroyTab(tab);
 		const { agentDir, error } = this.profiles.resolveAgentDir(profileName);
 		this.tabs.set(tabId, {
@@ -632,7 +687,7 @@ export class SessionHost {
 			lastStreaming: false,
 			lastMetaJson: "",
 		});
-		return this.ensureSession(tabId);
+		return this.ensureSession(tabId, sessionFile ?? undefined, { skipProfileRestore: true });
 	}
 
 	async listSessions(): Promise<SessionListItemDTO[]> {

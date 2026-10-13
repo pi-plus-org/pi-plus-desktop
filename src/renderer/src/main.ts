@@ -292,10 +292,11 @@ function init(): void {
 	fileTreeRef = fileTree;
 	const tabsBar = new TabsBar($("#tabbar"), (tab, profileName) => {
 		void (async () => {
-			// A profile switch is a session-replacing capability: the returned
-			// snapshot carries the new profile's default model, so the status
-			// line chip shows it right away instead of keeping the disposed
-			// session's.
+			// A profile switch is a session-replacing capability. The transcript
+			// survives the switch: the main host resumes the same session file
+			// under the new profile and enforceProfileModel settles the model
+			// into the profile's scope, so the returned snapshot carries the
+			// resumed messages (plus a notice line when the model changed).
 			try {
 				const result = await window.pi.setTabProfile(tab.tabId, profileName);
 				tab.profileName = profileName; // before the "tabs" render inside

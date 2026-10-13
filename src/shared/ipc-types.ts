@@ -84,6 +84,9 @@ export interface EnsureResult {
 	editorText?: string;
 	/** True when an extension vetoed a fork/rewind (no new snapshot). */
 	cancelled?: boolean;
+	/** Set by ensureSession when resume restored a different profile than the
+	 *  tab's current one (transcript-model inference): syncs the tab badge. */
+	profileName?: string | null;
 }
 
 export interface CompactResultDTO {
