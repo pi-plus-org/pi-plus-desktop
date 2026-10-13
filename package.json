@@ -10,6 +10,7 @@
 		"start": "electron .",
 		"typecheck": "tsc --noEmit",
 		"smoke": "node scripts/smoke.mjs",
+		"test:thinking": "node scripts/test-thinking-dom.mjs",
 		"icon": "electron scripts/make-icon.mjs && node scripts/make-ico.mjs"
 	},
 	"dependencies": {

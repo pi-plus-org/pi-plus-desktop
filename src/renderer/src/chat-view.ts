@@ -99,11 +99,23 @@ function lastThinkingIndex(blocks: ContentBlockDTO[]): number {
 	return -1;
 }
 
-/** Where/how to render the tab's latest thinking block (open by default). */
+/** The tab's single expanded thinking block: its text, the open flag the user
+ * last set on it, and the DOM node currently rendering it. */
+interface ThinkingSlot {
+	text: string;
+	open: boolean;
+	node: HTMLDetailsElement | null;
+}
+
+/** Where/how to render the tab's latest thinking block (open by default),
+ * plus the handoff hooks the rendered <details> uses to take the slot over. */
 interface LatestThinking {
 	index: number;
 	open: boolean;
-	onToggle: (open: boolean) => void;
+	/** Claim the slot for this node, folding whatever node held it before. */
+	claim: (node: HTMLDetailsElement) => void;
+	/** Record a user toggle — ignored unless `node` still owns the slot. */
+	toggle: (node: HTMLDetailsElement, open: boolean) => void;
 }
 
 function renderAssistantBlocks(tab: TabState, content: ContentBlockDTO[], container: HTMLElement, thinking?: LatestThinking): void {
@@ -122,7 +134,8 @@ function renderAssistantBlocks(tab: TabState, content: ContentBlockDTO[], contai
 				details.append(el("div", "thinking-body", block.thinking));
 				if (thinking && i === thinking.index) {
 					details.open = thinking.open;
-					details.addEventListener("toggle", () => thinking.onToggle(details.open));
+					thinking.claim(details);
+					details.addEventListener("toggle", () => thinking.toggle(details, details.open));
 				}
 				container.append(details);
 				break;
@@ -200,14 +213,19 @@ export class ChatView {
 	/** Node holding the live streaming content for fast delta updates. */
 	private streamNode: HTMLElement | null = null;
 	/**
-	 * Per-tab open/closed state of the latest thinking block. The stream
-	 * re-renders on every delta and refreshTools re-renders the whole list,
-	 * so the block is identified by its text: deltas grow the same string
-	 * (prefix match) and finalization hands it over to the items pass
-	 * unchanged, while a new thinking block never prefix-matches and so
-	 * starts expanded again.
+	/**
+	 * Per-tab state of the one expanded thinking block. The stream re-renders on
+	 * every delta and refreshTools re-renders the whole list, so the block is
+	 * identified by its text: deltas grow the same string (prefix match) and
+	 * finalization hands it over to the items pass unchanged, while a new
+	 * thinking block never prefix-matches and so starts expanded again. The node
+	 * reference is what makes folding reliable: the message list is only rebuilt
+	 * on `chat` events, so when a new block takes the slot from one that is still
+	 * on screen (the previous turn's thinking sitting in a finalized item), the
+	 * loser is folded explicitly instead of waiting for a re-render that only
+	 * comes when the incoming message finalizes.
 	 */
-	private thinkingState = new Map<string, { text: string; open: boolean }>();
+	private thinkingSlots = new Map<string, ThinkingSlot>();
 
 	constructor(root: HTMLElement) {
 		this.root = root;
@@ -230,11 +248,15 @@ export class ChatView {
 		node.replaceChildren();
 		this.streamNode = null;
 		// The stream tail owns the latest-thinking slot when it is thinking;
-		// otherwise it belongs to the last finalized thinking block.
+		// otherwise it belongs to the last finalized thinking block — but only
+		// while that block is still the newest exchange: once the next user message
+		// is on screen the previous block is history, so the slot goes empty (and
+		// folds) instead of reopening it for the whole incoming turn.
 		let openOn: { item: number; thinking: LatestThinking } | undefined;
 		if (![...tab.streamBlocks.values()].some((b) => b.type === "thinking")) {
 			for (let i = tab.items.length - 1; i >= 0; i--) {
 				const item = tab.items[i];
+				if (item?.kind === "user") break;
 				if (item?.kind !== "assistant") continue;
 				const content = assistantContent(item.message);
 				const index = lastThinkingIndex(content);
@@ -243,6 +265,7 @@ export class ChatView {
 					break;
 				}
 			}
+			if (!openOn) this.releaseSlot(tab.tabId);
 		}
 		for (const [i, item] of tab.items.entries()) {
 			node.append(this.renderItem(tab, item, openOn && openOn.item === i ? openOn.thinking : undefined));
@@ -255,10 +278,36 @@ export class ChatView {
 	private resolveThinking(tabId: string, blocks: ContentBlockDTO[], index: number): LatestThinking {
 		const block = blocks[index];
 		const text = block?.type === "thinking" ? block.thinking : "";
-		const prev = this.thinkingState.get(tabId);
-		const open = prev && text.startsWith(prev.text) ? prev.open : true;
-		this.thinkingState.set(tabId, { text, open });
-		return { index, open, onToggle: (next) => this.thinkingState.set(tabId, { text, open: next }) };
+		const slot = this.thinkingSlots.get(tabId) ?? { text: "", open: true, node: null };
+		if (!text.startsWith(slot.text)) {
+			// A new block took over: reset it to expanded.
+			slot.text = "";
+			slot.open = true;
+		}
+		slot.text = text;
+		this.thinkingSlots.set(tabId, slot);
+		const open = slot.open;
+		return {
+			index,
+			open,
+			claim: (node) => {
+				const prev = slot.node;
+				if (prev && prev !== node && prev.isConnected) prev.open = false;
+				slot.node = node;
+			},
+			toggle: (node, next) => {
+				// Only the node currently holding the slot may steer its state.
+				if (slot.node === node) slot.open = next;
+			}
+		};
+	}
+
+	/** Give up the slot: the tab has no current latest thinking block, so fold. */
+	private releaseSlot(tabId: string): void {
+		const slot = this.thinkingSlots.get(tabId);
+		if (!slot) return;
+		if (slot.node?.isConnected) slot.node.open = false;
+		this.thinkingSlots.delete(tabId);
 	}
 
 	private renderItem(tab: TabState, item: TabState["items"][number], thinking?: LatestThinking): HTMLElement {
@@ -309,7 +358,7 @@ export class ChatView {
 	removeTab(tabId: string): void {
 		this.containers.get(tabId)?.remove();
 		this.containers.delete(tabId);
-		this.thinkingState.delete(tabId);
+		this.thinkingSlots.delete(tabId);
 		if (this.streamNode && !this.streamNode.isConnected) this.streamNode = null;
 	}
 
