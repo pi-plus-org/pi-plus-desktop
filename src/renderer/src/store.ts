@@ -26,8 +26,22 @@ export interface ToolBlock {
 	resultPreview?: string;
 }
 
+/**
+ *  Transcript item. `queued` is set when the message was echoed while the
+ *  agent was streaming, i.e. it went into the steering/follow-up queue
+ *  instead of starting a turn: "queued" = still pending in the SDK queue,
+ *  "delivered" = the agent consumed it (the echo is reordered to its true
+ *  transcript slot at that moment), "dropped" = the queue was discarded
+ *  (abort) before delivery.
+ */
 export type ChatItem =
-	| { kind: "user"; text: string; ts?: number; attachments?: string[] }
+	| {
+			kind: "user";
+			text: string;
+			ts?: number;
+			attachments?: string[];
+			queued?: { mode: "steer" | "followUp"; state: "queued" | "delivered" | "dropped" };
+	  }
 	| { kind: "assistant"; message: ChatMessageDTO }
 	| { kind: "toolResult"; message: ChatMessageDTO }
 	| { kind: "compaction"; text: string }
@@ -44,6 +58,8 @@ export interface TabState {
 	meta?: SessionMetaDTO;
 	/** Queued messages while a turn is streaming. */
 	queue: QueueDTO;
+	/** Pending "undelivered" sweep after a queue_update (see scheduleDropCheck). */
+	dropTimer?: ReturnType<typeof setTimeout>;
 	/** Pinned todo glance: the tab session's task list (pushed on change). */
 	tasks: TaskDTO[];
 	// Convenience mirrors of meta fields (kept in sync by setTabMeta).
@@ -265,10 +281,16 @@ class Store {
 	}
 
 	/** Optimistic echo of the user's sent message (the SDK emits no event for it). */
-	appendUserItem(tabId: string, text: string, attachments?: string[]): number {
+	appendUserItem(tabId: string, text: string, attachments?: string[], queueMode?: "steer" | "followUp"): number {
 		const tab = this.tabs.get(tabId);
 		if (!tab) return -1;
-		tab.items.push({ kind: "user", text, ts: Date.now(), ...(attachments && attachments.length > 0 ? { attachments } : {}) });
+		tab.items.push({
+			kind: "user",
+			text,
+			ts: Date.now(),
+			...(attachments && attachments.length > 0 ? { attachments } : {}),
+			...(queueMode ? { queued: { mode: queueMode, state: "queued" as const } } : {}),
+		});
 		this.emit({ type: "chat", tabId });
 		this.emit({ type: "tabs" }); // label comes from the first user message
 		return tab.items.length - 1;
@@ -311,9 +333,14 @@ class Store {
 			case "message_end": {
 				// The SDK echoes user messages back as message_end; the optimistic
 				// echo in appendUserItem already shows them, so only assistant and
-				// toolResult messages are appended here.
+				// toolResult messages are appended here. A queued echo (steer /
+				// follow-up) is promoted to "delivered" and moved to the end of the
+				// item list — its true transcript slot, after whatever the agent
+				// streamed while the message waited in the queue.
 				if (event.message.role !== "user") {
 					tab.items.push(...messageToItems(event.message));
+				} else {
+					this.promoteQueued(tab, event.message);
 				}
 				this.finalizeStream(tab);
 				this.emit({ type: "chat", tabId }); // finalized message must hit the item list
@@ -402,6 +429,12 @@ class Store {
 
 			case "queue_update":
 				tab.queue = { steering: event.steering, followUp: event.followUp };
+				// Delivery removes the message from the queue immediately before
+				// its user message_end arrives; an abort/clear removes it with
+				// nothing following. Let the delivery chain win the race, then
+				// mark any still-"queued" echo whose text left the queue as
+				// undelivered.
+				this.scheduleDropCheck(tab);
 				this.emit({ type: "meta", tabId });
 				break;
 
@@ -473,6 +506,59 @@ class Store {
 			case "error":
 				break; // message_end follows with the finalized message
 		}
+	}
+
+	/**
+	 *  Match an SDK-delivered user message to its optimistic queued echo
+	 *  (FIFO; exact text first, then composed-prefix when attachments were
+	 *  folded into the prompt) and mark it delivered, moving it to the end
+	 *  of the item list — the position it actually entered the transcript
+	 *  at. Silent no-op for direct prompts, whose untagged echo is already
+	 *  last (and for user messages that arrived outside a desktop send).
+	 */
+	private promoteQueued(tab: TabState, message: ChatMessageDTO): void {
+		if (!message || message.role !== "user") return;
+		const delivered = textOfContent(message.content);
+		if (!delivered) return;
+		let match: ChatItem | undefined;
+		for (const item of tab.items) {
+			if (item.kind !== "user" || item.queued?.state !== "queued" || !item.text) continue;
+			if (item.text === delivered) {
+				match = item;
+				break;
+			}
+			if (!match && delivered.startsWith(item.text)) match = item;
+		}
+		if (!match || match.kind !== "user" || !match.queued) return;
+		match.queued.state = "delivered";
+		const idx = tab.items.indexOf(match);
+		if (idx !== -1 && idx !== tab.items.length - 1) {
+			tab.items.splice(idx, 1);
+			tab.items.push(match);
+		}
+	}
+
+	/** See the queue_update case: settle "queued" echoes that no delivery will claim. */
+	private scheduleDropCheck(tab: TabState): void {
+		if (tab.dropTimer !== undefined) return;
+		tab.dropTimer = setTimeout(() => {
+			delete tab.dropTimer;
+			if (!this.tabs.has(tab.tabId)) return;
+			let changed = false;
+			for (const item of tab.items) {
+				if (item.kind === "user" && item.queued?.state === "queued" && !this.queueHolds(tab, item.text)) {
+					item.queued.state = "dropped";
+					changed = true;
+				}
+			}
+			if (changed) this.emit({ type: "chat", tabId: tab.tabId });
+		}, 600);
+	}
+
+	/** Whether the raw echo text is still pending in either queue array. */
+	private queueHolds(tab: TabState, raw: string): boolean {
+		const holds = (list: string[]) => list.some((t) => t === raw || t.startsWith(raw));
+		return holds(tab.queue.steering) || holds(tab.queue.followUp);
 	}
 
 	private finalizeStream(tab: TabState): void {

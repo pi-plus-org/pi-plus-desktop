@@ -182,8 +182,11 @@ let fileTreeRef: FileTree | null = null;
 async function sendPrompt(text: string, attachments: string[] = [], mode?: "steer" | "followUp"): Promise<void> {
 	const tabId = store.activeTabId;
 	if (!tabId) return;
-	// Local echo: the SDK emits no event for user messages.
-	const index = store.appendUserItem(tabId, text, attachments);
+	// Local echo: the SDK emits no event for user messages. A mode means the
+	// prompt lands in the steering/follow-up queue, so tag the echo "queued"
+	// — the store promotes it on delivery (queue_update -> message_end) or
+	// marks it dropped when an abort/clear discards it.
+	const index = store.appendUserItem(tabId, text, attachments, mode);
 	try {
 		await window.pi.prompt(tabId, text, attachments, mode);
 	} catch (err) {

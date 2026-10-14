@@ -9,7 +9,7 @@ import type { ChatMessageDTO, ContentBlockDTO } from "../../shared/ipc-types.ts"
 import { thumbSrc } from "./image-thumb.ts";
 import { renderDiffView, renderAddedFile } from "./diff-view.ts";
 import { renderMarkdownToHtml, escapeHtml } from "./markdown.ts";
-import { store, type TabState, type ToolBlock } from "./store.ts";
+import { store, type ChatItem, type TabState, type ToolBlock } from "./store.ts";
 
 function el(tag: string, className?: string, text?: string): HTMLElement {
 	const node = document.createElement(tag);
@@ -45,14 +45,28 @@ function renderToolRow(tab: TabState, toolCallId: string, fallbackName: string):
 	return row;
 }
 
-function renderUserItem(text: string, attachments?: string[]): HTMLElement {
+function renderUserItem(item: Extract<ChatItem, { kind: "user" }>): HTMLElement {
 	const row = el("div", "msg msg-user");
 	const bubble = el("div", "msg-user-bubble");
-	bubble.textContent = text;
+	bubble.textContent = item.text;
+	if (item.queued && item.queued.state !== "delivered") {
+		// Optimistic steer/follow-up echo: dimmed + tagged until the SDK
+		// delivers it (state flips to "delivered" -> plain bubble at its
+		// transcript slot) or discards it (abort/clear -> "not delivered").
+		row.classList.add(item.queued.state === "queued" ? "msg-queued" : "msg-dropped");
+		const tag = el(
+			"span",
+			"msg-queued-tag",
+			item.queued.state === "queued"
+				? `queued · ${item.queued.mode === "steer" ? "steering" : "follow-up"}`
+				: "not delivered",
+		);
+		bubble.append(tag);
+	}
 	row.append(bubble);
-	if (attachments && attachments.length > 0) {
+	if (item.attachments && item.attachments.length > 0) {
 		const chipRow = el("div", "msg-user-attachments");
-		for (const path of attachments) {
+		for (const path of item.attachments) {
 			const name = path.split(/[/\\]/).pop() || path;
 			if (isImagePath(path)) {
 				const img = document.createElement("img");
@@ -313,7 +327,7 @@ export class ChatView {
 	private renderItem(tab: TabState, item: TabState["items"][number], thinking?: LatestThinking): HTMLElement {
 		switch (item.kind) {
 			case "user":
-				return renderUserItem(item.text, item.attachments);
+				return renderUserItem(item);
 			case "assistant":
 				return renderAssistantItem(tab, item.message, thinking);
 			case "toolResult":

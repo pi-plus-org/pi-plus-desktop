@@ -11,6 +11,7 @@
 		"typecheck": "tsc --noEmit",
 		"smoke": "node scripts/smoke.mjs",
 		"test:thinking": "node scripts/test-thinking-dom.mjs",
+		"test:steer-queue": "node scripts/test-steer-queue.mjs",
 		"icon": "electron scripts/make-icon.mjs && node scripts/make-ico.mjs"
 	},
 	"dependencies": {

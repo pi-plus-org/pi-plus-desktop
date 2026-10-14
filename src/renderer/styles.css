@@ -647,6 +647,28 @@ body {
 	word-break: break-word;
 }
 
+/* Optimistic steer/follow-up echo waiting in the SDK queue: dimmed until
+   delivered (then a plain bubble at its transcript slot) or marked
+   "not delivered" after an abort/clear discards it. */
+.msg-queued .msg-user-bubble {
+	opacity: 0.55;
+	border: 1px dashed var(--border);
+}
+
+.msg-dropped .msg-user-bubble {
+	opacity: 0.4;
+	text-decoration: line-through;
+}
+
+.msg-queued-tag {
+	font-size: 10px;
+	opacity: 0.8;
+	margin-left: 8px;
+	font-style: italic;
+	text-decoration: none; /* undo the dropped bubble's strike-through */
+	display: inline-block;
+}
+
 .msg-assistant-body {
 	line-height: 1.55;
 	word-break: break-word;
