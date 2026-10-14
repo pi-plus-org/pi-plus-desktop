@@ -81,12 +81,17 @@ interface TabHandle {
 	lastStreaming: boolean;
 	/** Last meta pushed, so refreshMeta() can skip unchanged payloads. */
 	lastMetaJson: string;
+	/** Throttle stamp for meta refreshes triggered by high-frequency run events
+	 *  (message_update): the context estimate walks the whole transcript, so it
+	 *  is re-queried at most once per META_STREAM_THROTTLE_MS while streaming. */
+	lastMetaRefreshAt: number;
 	/** Tool-permission mode holder shared with the pi-plus-permissions
 	 *  extension (the live truth for the gate; survives session replacement). */
 	permission: PermissionModeState;
 }
 
 const FORK_PREVIEW_LIMIT = 160;
+const META_STREAM_THROTTLE_MS = 1000;
 
 function modelRef(model: { provider: string; id: string } | undefined): string {
 	return model ? `${model.provider}/${model.id}` : "";
@@ -155,6 +160,7 @@ export class SessionHost {
 			taskUnsub: null,
 			lastStreaming: false,
 			lastMetaJson: "",
+			lastMetaRefreshAt: 0,
 			permission,
 		});
 		return { tabId, cwd, profileName, permissionMode: permission.mode };
@@ -390,15 +396,30 @@ export class SessionHost {
 		const sanitized = sanitizeEvent(raw);
 		if (sanitized) this.push(tab.tabId, sanitized);
 
-		// Meta-relevant events: usage/model/thinking/name/persisted flip.
+		// Meta-relevant events: usage/model/thinking/name/persisted flip. Run-
+		// progress events (message_start/message_end) also refresh: the context
+		// estimate changes as the transcript grows, and without these the chip
+		// stayed at its initial value for the entire run (entry_appended only
+		// fires at turn end).
 		switch (event.type) {
 			case "session_info_changed":
 			case "thinking_level_changed":
 			case "agent_settled":
 			case "compaction_end":
 			case "entry_appended":
+			case "message_start":
+			case "message_end":
 				this.refreshMeta(tab);
 				break;
+			case "message_update": {
+				// Keep the context-usage chip live during long streaming responses.
+				const now = Date.now();
+				if (now - tab.lastMetaRefreshAt >= META_STREAM_THROTTLE_MS) {
+					tab.lastMetaRefreshAt = now;
+					this.refreshMeta(tab);
+				}
+				break;
+			}
 			default:
 				break;
 		}
@@ -686,6 +707,7 @@ export class SessionHost {
 			taskUnsub: null,
 			lastStreaming: false,
 			lastMetaJson: "",
+			lastMetaRefreshAt: 0,
 		});
 		return this.ensureSession(tabId, sessionFile ?? undefined, { skipProfileRestore: true });
 	}
