@@ -16,7 +16,6 @@ type AnyAgentMessage = { role: string; content?: unknown; [key: string]: unknown
 
 const TOOL_PREVIEW_LIMIT = 4096;
 const TOOL_DIFF_LIMIT = 32768;
-const SNAPSHOT_TEXT_LIMIT = 2048;
 const SNAPSHOT_MESSAGE_LIMIT = 500;
 
 function truncate(text: string, limit: number): string {
@@ -42,9 +41,11 @@ function toContentBlockDTO(block: unknown): ContentBlockDTO {
 	const b = block as Record<string, unknown>;
 	switch (b?.type) {
 		case "text":
-			return { type: "text", text: truncate(String(b.text ?? ""), SNAPSHOT_TEXT_LIMIT) };
+			// Displayed chat text is never truncated — the assistant's full reply
+			// must render intact both live (message_end) and on resume (snapshot).
+			return { type: "text", text: String(b.text ?? "") };
 		case "thinking":
-			return { type: "thinking", thinking: truncate(String(b.thinking ?? ""), SNAPSHOT_TEXT_LIMIT), redacted: b.redacted === true };
+			return { type: "thinking", thinking: String(b.thinking ?? ""), redacted: b.redacted === true };
 		case "toolCall":
 			return { type: "toolCall", id: String(b.id ?? ""), name: String(b.name ?? ""), arguments: b.arguments };
 		case "image":
