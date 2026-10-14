@@ -446,7 +446,68 @@ export class SessionHost {
 		await this.ensureSession(tabId);
 		// ensureSession above guarantees the runtime exists; streamingBehavior
 		// only matters while a turn is in flight (queued as steer/follow-up).
-		await this.sessionOf(tab).prompt(composePromptText(text, attachments), { streamingBehavior: mode ?? "followUp" });
+		await this.submitPrompt(tab, composePromptText(text, attachments), mode ?? "followUp");
+	}
+
+	/** Bound on waiting for session.prompt() to settle. Extension `input`
+	 * handlers (image loading, webui RPC) run *before* the steer/follow-up
+	 * enqueue and have no timeout of their own — when one hangs, the IPC
+	 * promise would otherwise stay pending forever: no queue_update, nothing
+	 * in the transcript, and the renderer's echo rots in "queued". */
+	private static readonly promptStallMs = 20_000;
+	/** Bound on auto-retrying transient prompt rejections. The SDK rejects
+	 * prompts outright while compaction is in flight or a run with a
+	 * different streamingBehavior owns the loop; both are short-lived, and
+	 * losing user input to a timing race is worse than a brief delay. */
+	private static readonly promptRetryMs = 30_000;
+
+	private async submitPrompt(tab: TabHandle, composed: string, behavior: "steer" | "followUp"): Promise<void> {
+		const session = this.sessionOf(tab);
+		const deadline = Date.now() + SessionHost.promptRetryMs;
+		for (;;) {
+			const attempt = session.prompt(composed, { streamingBehavior: behavior });
+			// The stall bound only applies to the enqueue path: while a run is
+			// streaming, prompt() must settle almost immediately (queue +
+			// queue_update). An idle prompt instead starts a run and settles
+			// only when that run ends — no bound on that.
+			const enqueueOnly = session.isStreaming;
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			try {
+				if (enqueueOnly) {
+					await Promise.race([
+						attempt,
+						new Promise<never>((_, reject) => {
+							timer = setTimeout(
+								() =>
+									reject(
+										new Error(
+											`send stalled: prompt() did not settle within ${SessionHost.promptStallMs / 1000}s (an extension input handler may be hung)`,
+										),
+										),
+									SessionHost.promptStallMs,
+								);
+						}),
+					]);
+				} else {
+					await attempt;
+				}
+				return;
+			} catch (error) {
+				// A stalled call may still settle later; its queueing then
+				// surfaces via queue_update. Keep the orphan rejection inert.
+				attempt.catch(() => {});
+				const message = error instanceof Error ? error.message : String(error);
+				const transient =
+					/compaction is in progress|different streamingBehavior/i.test(message) &&
+					session.isStreaming &&
+					Date.now() < deadline;
+				console.error(`[session-host] prompt rejected: ${message} (${transient ? "retrying" : "giving up"})`);
+				if (!transient) throw error;
+				await new Promise((resolve) => setTimeout(resolve, 500));
+			} finally {
+				clearTimeout(timer);
+			}
+		}
 	}
 
 	async abort(tabId: string): Promise<void> {
@@ -499,11 +560,10 @@ export class SessionHost {
 	async cd(tabId: string, dirPath: string): Promise<EnsureResult> {
 		const tab = this.getTab(tabId);
 		await this.ensureSession(tabId);
-		const session = this.sessionOf(tab);
 		const before = tab.runtime!.cwd;
 		// The /cd handler resolves relative args against the current cwd and
 		// does its own waitForIdle; spaces inside the path are preserved.
-		await session.prompt(`/cd ${dirPath}`, { streamingBehavior: "followUp" });
+		await this.submitPrompt(tab, `/cd ${dirPath}`, "followUp");
 		tab.cwd = tab.runtime!.cwd;
 		if (tab.cwd === before) throw new Error(`Could not change folder to '${dirPath}'.`);
 		return this.describe(tab);

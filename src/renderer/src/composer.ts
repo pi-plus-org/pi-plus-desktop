@@ -614,7 +614,14 @@ export class Composer {
 		const lines: string[] = [];
 		for (const text of steering) lines.push(`Steering: ${text}`);
 		for (const text of followUp) lines.push(`Follow-up: ${text}`);
-		this.queueChip.title = `Next message queues as ${modeLabel} — click to toggle${lines.length ? `\n\n${lines.join("\n")}` : ""}`;
+		// Honest about *when* the next send runs: steering waits for a turn
+		// boundary (far away behind long tool loops), follow-up waits for the
+		// agent to stop (may never come during an endless tool loop).
+		const when =
+			this.sendMode === "steer"
+				? "interrupts at the next turn boundary"
+				: "runs only after the agent stops (a long tool loop delays it)";
+		this.queueChip.title = `Next message queues as ${modeLabel} and ${when} — click to toggle${lines.length ? `\n\n${lines.join("\n")}` : ""}`;
 	}
 
 	/** Usage of the most recent finalized assistant exchange, if any. */

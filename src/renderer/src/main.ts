@@ -190,9 +190,17 @@ async function sendPrompt(text: string, attachments: string[] = [], mode?: "stee
 	try {
 		await window.pi.prompt(tabId, text, attachments, mode);
 	} catch (err) {
+		const message = String((err as Error).message ?? err);
+		if (message.includes("send stalled")) {
+			// The host gave up waiting, but the send may still land late. Keep
+			// the echo "queued"; agent_end reconciliation flips it to dropped
+			// only if delivery truly never happens.
+			dialogs.notify(`Send uncertain: ${message}`, "error");
+			return;
+		}
 		store.removeItemAt(tabId, index);
 		composerRef?.restoreAttachments(attachments);
-		dialogs.notify(`Send failed: ${String((err as Error).message ?? err)}`, "error");
+		dialogs.notify(`Send failed: ${message}`, "error");
 	}
 }
 

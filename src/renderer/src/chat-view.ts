@@ -61,6 +61,18 @@ function renderUserItem(item: Extract<ChatItem, { kind: "user" }>): HTMLElement 
 				? `queued · ${item.queued.mode === "steer" ? "steering" : "follow-up"}`
 				: "not delivered",
 		);
+		// Say honestly *when* each mode gets its turn: steering is injected at
+		// the next turn boundary (which can be far away behind a long tool
+		// loop), a follow-up only runs once the agent would otherwise stop —
+		// an endless tool loop never stops, so it may wait the whole run.
+		if (item.queued.state === "queued") {
+			tag.title =
+				item.queued.mode === "steer"
+					? "Waiting for the next turn boundary to interrupt the run"
+					: "Waiting for the agent to stop before running (a long tool loop can delay this a lot)";
+		} else {
+			tag.title = "The run ended or the queue was cleared before this was delivered";
+		}
 		bubble.append(tag);
 	}
 	row.append(bubble);

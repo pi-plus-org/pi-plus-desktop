@@ -449,9 +449,29 @@ class Store {
 				break;
 
 			case "agent_start":
-			case "agent_end":
-			case "agent_settled":
 			case "turn_start":
+				break;
+
+			case "agent_end": {
+				// A run ending is the last chance to be honest about pending
+				// echoes: delivery drains the SDK queue (queue_update) and claims
+				// the echo (message_end) before or at this point. Anything still
+				// "queued" that the queue arrays don't hold was lost on the way
+				// (rejected, swallowed, or a stalled send) — show it as dropped
+				// instead of letting the bubble rot. abort() also clears the
+				// queues, so a stopped run reconciles here too.
+				let stale = false;
+				for (const item of tab.items) {
+					if (item.kind === "user" && item.queued?.state === "queued" && !this.queueHolds(tab, item.text)) {
+						item.queued.state = "dropped";
+						stale = true;
+					}
+				}
+				if (stale) this.emit({ type: "chat", tabId });
+				break;
+			}
+
+			case "agent_settled":
 				break;
 		}
 	}

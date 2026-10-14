@@ -12,12 +12,14 @@
 		"smoke": "node scripts/smoke.mjs",
 		"test:thinking": "node scripts/test-thinking-dom.mjs",
 		"test:steer-queue": "node scripts/test-steer-queue.mjs",
+		"test:steer-e2e": "node scripts/test-steer-e2e.mjs",
+		"test:steer-longtool": "node scripts/test-steer-longtool.mjs",
 		"icon": "electron scripts/make-icon.mjs && node scripts/make-ico.mjs"
 	},
 	"dependencies": {
 		"dompurify": "^3.2.4",
 		"marked": "^15.0.7",
-		"pi-plus-sdk": "^0.2.12"
+		"pi-plus-sdk": "^0.2.13"
 	},
 	"devDependencies": {
 		"@types/node": "^22.13.0",
