@@ -20,7 +20,7 @@
 	"dependencies": {
 		"dompurify": "^3.2.4",
 		"marked": "^15.0.7",
-		"pi-plus-sdk": "^0.2.15"
+		"pi-plus-sdk": "^0.2.16"
 	},
 	"devDependencies": {
 		"@types/node": "^22.13.0",
