@@ -360,6 +360,10 @@ export interface AppSettingsDTO {
 	sidebarWidth: number;
 	/** File tree panel width in px (drag-resizable; see renderer FileTree). */
 	filetreeWidth: number;
+	/** History panel remembered folded (⟨ chip) across launches. */
+	sidebarCollapsed: boolean;
+	/** File tree panel remembered folded (« chip) across launches. */
+	filetreeCollapsed: boolean;
 	/** Permission mode new tabs start with (Settings → Permissions). */
 	defaultPermissionMode: PermissionMode;
 	/** npm/git install-tool locations (Packages window → Package tools). */
@@ -444,6 +448,8 @@ export const IPC = {
 		listEditors: "settings:listEditors",
 		setSidebarWidth: "settings:setSidebarWidth",
 		setFiletreeWidth: "settings:setFiletreeWidth",
+		setSidebarCollapsed: "settings:setSidebarCollapsed",
+		setFiletreeCollapsed: "settings:setFiletreeCollapsed",
 		setDefaultPermissionMode: "settings:setDefaultPermissionMode",
 		setPackageTools: "settings:setPackageTools",
 		openInEditor: "editor:open",
@@ -563,6 +569,10 @@ export interface PiApi {
 	setSidebarWidth(width: number): Promise<void>;
 	/** Persist the drag-resized file tree panel width. */
 	setFiletreeWidth(width: number): Promise<void>;
+	/** Persist whether the history panel starts folded next launch. */
+	setSidebarCollapsed(collapsed: boolean): Promise<void>;
+	/** Persist whether the file tree panel starts folded next launch. */
+	setFiletreeCollapsed(collapsed: boolean): Promise<void>;
 	/** Permission mode new tabs start with (Settings → Permissions). */
 	setDefaultPermissionMode(mode: PermissionMode): Promise<void>;
 	/** Persist npm/git tool-location settings (partial patch; see AppSettings). */
@@ -604,7 +614,7 @@ export interface PiApi {
 	 */
 	revealPath(path: string): Promise<string>;
 	/**
-	 * Open a URL in the OS default web browser (http/https only).
+	 * Open a URL in a NEW tab of the OS default web browser (http/https only).
 	 * Resolves to "" on success, or the error message.
 	 */
 	openExternal(url: string): Promise<string>;

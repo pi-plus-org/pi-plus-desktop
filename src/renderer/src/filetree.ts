@@ -36,8 +36,21 @@ export function clampFiletreeWidth(px: number): number {
 export class FileTree {
 	private root: HTMLElement;
 	private resizer: HTMLElement;
-	/** True while no tab is open: the panel is fully hidden (no chip either). */
-	private hidden = false;
+	/**
+	 * True while no tab is open: the panel is fully hidden (no chip either).
+	 * Starts hidden because launches always do (main.ts calls sync() once),
+	 * which also keeps an early remembered-fold replay from flashing a chip
+	 * for a tab that does not exist yet.
+	 */
+	private hidden = true;
+	/**
+	 * User preference: keep the panel folded to the floating chip. Remembered
+	 * in settings.json (main.ts replays it at startup) and honoured by sync(),
+	 * so opening a new tab does not unfold a panel the user folded on purpose.
+	 */
+	private collapsed = false;
+	/** Set once the user folds/unfolds by hand; blocks a late startup replay. */
+	private touched = false;
 	/** tabId + cwd of what is currently displayed; change triggers a reload. */
 	private lastKey = "";
 	/** cwd-relative paths of expanded directories ("" = the cwd root). */
@@ -60,6 +73,10 @@ export class FileTree {
 	constructor(root: HTMLElement) {
 		this.root = root;
 		this.resizer = this.createResizer();
+		// Paint the resting state immediately: launches always start with no tab,
+		// and sync() early-returns while already hidden — without this the grid
+		// track would keep its full width and show an empty gutter.
+		this.render();
 	}
 
 	/** Drag handle on the panel's left edge (the boundary with the chat);
@@ -97,9 +114,22 @@ export class FileTree {
 
 	toggle(): void {
 		if (this.hidden) return; // no open tab — nothing to show
-		// toggle() returns true when the class was ADDED — i.e. we collapsed.
-		const nowCollapsed = this.root.classList.toggle("filetree-collapsed");
-		if (!nowCollapsed) {
+		this.setCollapsed(!this.collapsed, true);
+	}
+
+	/**
+	 * Fold/unfold the panel. `persist` remembers the choice across launches;
+	 * startup replay (applyCollapsed) passes false so the stored value is not
+	 * rewritten on every launch.
+	 */
+	setCollapsed(collapsed: boolean, persist: boolean): void {
+		if (collapsed === this.collapsed) return;
+		this.collapsed = collapsed;
+		if (persist) {
+			this.touched = true;
+			void window.pi.setFiletreeCollapsed(collapsed).catch((err) => console.warn("[filetree] save fold state failed", err));
+		}
+		if (!collapsed) {
 			// Un-collapsed: sync() reloads only when the tab/cwd changed, so an
 			// unchanged tree still needs an explicit re-render here — otherwise
 			// the panel keeps the collapsed chip's DOM and looks empty.
@@ -108,6 +138,12 @@ export class FileTree {
 		} else {
 			this.render();
 		}
+	}
+
+	/** Apply the remembered fold state at startup (never writes back). */
+	applyCollapsed(collapsed: boolean): void {
+		if (this.touched) return; // the user already decided this session
+		this.setCollapsed(collapsed, false);
 	}
 
 	/** Reload when the active tab (or its cwd) changed; no-op otherwise.
@@ -122,17 +158,14 @@ export class FileTree {
 				this.children.clear();
 				this.truncated.clear();
 				this.selected = null;
-				// filetree-collapsed reuses the existing :has() grid rules (0-width
-				// track); filetree-hidden additionally suppresses the expand chip.
-				this.root.classList.add("filetree-hidden", "filetree-collapsed");
+				// render() derives the classes: filetree-collapsed reuses the
+				// existing :has() grid rules (0-width track) and filetree-hidden
+				// additionally suppresses the expand chip.
 				this.render();
 			}
 			return;
 		}
-		if (this.hidden) {
-			this.hidden = false;
-			this.root.classList.remove("filetree-hidden", "filetree-collapsed");
-		}
+		this.hidden = false; // a tab exists: the chip may come back, per `collapsed`
 		const key = `${tab.tabId}\n${tab.cwd}`;
 		if (key === this.lastKey) return;
 		this.lastKey = key;
@@ -234,12 +267,17 @@ export class FileTree {
 		// panel back to the top. Clamped automatically if the list shrank.
 		const prevScroll = this.root.querySelector<HTMLElement>(".filetree-list")?.scrollTop ?? 0;
 		this.root.replaceChildren();
+		// Both flags drive the CSS: the track collapses whenever the panel shows
+		// nothing (folded by choice, or hidden for want of a tab), and the chip
+		// only appears while a tab is open.
+		this.root.classList.toggle("filetree-hidden", this.hidden);
+		this.root.classList.toggle("filetree-collapsed", this.hidden || this.collapsed);
 
 		// Hidden (no open tab): render nothing — not even the expand chip.
 		if (this.hidden) return;
 
 		// Collapsed: a floating expand chip over the chat's top-right corner.
-		if (this.root.classList.contains("filetree-collapsed")) {
+		if (this.collapsed) {
 			const expand = el("button", "filetree-expand", "«");
 			expand.title = "Show files (⌘⌥B)";
 			expand.addEventListener("click", () => this.toggle());

@@ -289,12 +289,16 @@ const tabActions: TabActions = {
 
 function init(): void {
 	installTooltip();
-	// Drag-resized history width (CSS clamps 180–520px live in the Sidebar).
+	// Drag-resized history width (CSS clamps 180–520px live in the Sidebar) and
+	// the panels' remembered fold state, replayed as soon as the settings land
+	// (both panels ignore a replay once the user has toggled by hand).
 	void window.pi
 		.getSettings()
 		.then((s) => {
 			document.documentElement.style.setProperty("--sidebar-w", `${clampSidebarWidth(s.sidebarWidth)}px`);
 			document.documentElement.style.setProperty("--filetree-w", `${clampFiletreeWidth(s.filetreeWidth)}px`);
+			sidebarRef?.applyCollapsed(s.sidebarCollapsed);
+			fileTreeRef?.applyCollapsed(s.filetreeCollapsed);
 		})
 		.catch(() => undefined);
 	const sidebar = new Sidebar($("#sidebar"), (item) => void resumeSession(item));

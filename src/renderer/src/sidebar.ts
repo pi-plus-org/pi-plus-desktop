@@ -111,10 +111,38 @@ export class Sidebar {
 		}, 250);
 	}
 
+	/** Set once the user folds/unfolds by hand; blocks a late startup replay. */
+	private touched = false;
+
 	toggle(): void {
-		this.root.classList.toggle("sidebar-collapsed");
+		this.setCollapsed(!this.collapsed, true);
+	}
+
+	/** True while folded to the thin rail (the collapsed class is the source of truth). */
+	private get collapsed(): boolean {
+		return this.root.classList.contains("sidebar-collapsed");
+	}
+
+	/**
+	 * Fold/unfold the panel. `persist` writes the flag to settings.json so the
+	 * next launch comes back in the same state (main.ts replays it at startup
+	 * via applyCollapsed without persisting).
+	 */
+	setCollapsed(collapsed: boolean, persist: boolean): void {
+		if (collapsed === this.collapsed) return;
+		this.root.classList.toggle("sidebar-collapsed", collapsed);
+		if (persist) {
+			this.touched = true;
+			void window.pi.setSidebarCollapsed(collapsed).catch((err) => console.warn("[sidebar] save fold state failed", err));
+		}
 		// Collapsed state swaps the whole DOM (rail vs full panel) via render().
 		this.render();
+	}
+
+	/** Apply the remembered fold state at startup (never writes back). */
+	applyCollapsed(collapsed: boolean): void {
+		if (this.touched) return; // the user already decided this session
+		this.setCollapsed(collapsed, false);
 	}
 
 	async refresh(): Promise<void> {

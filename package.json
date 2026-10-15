@@ -11,6 +11,7 @@
 		"typecheck": "tsc --noEmit",
 		"smoke": "node scripts/smoke.mjs",
 		"test:thinking": "node scripts/test-thinking-dom.mjs",
+		"test:panels": "node scripts/test-panel-fold.mjs",
 		"test:steer-queue": "node scripts/test-steer-queue.mjs",
 		"test:steer-e2e": "node scripts/test-steer-e2e.mjs",
 		"test:steer-longtool": "node scripts/test-steer-longtool.mjs",
@@ -19,7 +20,7 @@
 	"dependencies": {
 		"dompurify": "^3.2.4",
 		"marked": "^15.0.7",
-		"pi-plus-sdk": "^0.2.13"
+		"pi-plus-sdk": "^0.2.15"
 	},
 	"devDependencies": {
 		"@types/node": "^22.13.0",

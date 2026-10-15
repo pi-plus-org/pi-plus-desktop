@@ -256,10 +256,10 @@ export class ChatView {
 
 	constructor(root: HTMLElement) {
 		this.root = root;
-		// Markdown links in chat messages open in the OS default browser: the
-		// window itself must never navigate away (sandbox + CSP 'self' would
-		// silently swallow the click anyway), so intercept the click on the
-		// delegated root and hand the href to the main process.
+		// Markdown links in chat messages open in a NEW tab of the OS default
+		// browser: the window itself must never navigate away (sandbox + CSP
+		// 'self' would silently swallow the click anyway), so intercept the
+		// click on the delegated root and hand the href to the main process.
 		root.addEventListener("click", (e) => {
 			const mouse = e as MouseEvent;
 			if (mouse.defaultPrevented || mouse.button !== 0 || mouse.metaKey || mouse.ctrlKey || mouse.shiftKey || mouse.altKey) return;

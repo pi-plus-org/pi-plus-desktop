@@ -1,7 +1,8 @@
 /**
  * App-level settings, backed by the same stores `pipi` uses (pi-plus-sdk) —
  * there is no private userData settings file anymore. The desktop-only chrome
- * keys (desktopTheme / sidebarWidth / defaultPermissionMode) live in the
+ * keys (desktopTheme / sidebarWidth / sidebarCollapsed / filetreeCollapsed /
+ * defaultPermissionMode) live in the
  * `piPlus` block of the base agent settings.json (~/.pi/agent/settings.json,
  * via the SDK's generic readPiPlusSettings/updatePiPlusSettings), and the
  * external editor maps to the upstream `externalEditor` key of that same file
@@ -46,6 +47,10 @@ function asWidth(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function asBool(value: unknown): boolean | undefined {
+	return typeof value === "boolean" ? value : undefined;
+}
+
 /** Validate one piPlus `packageTools` entry; anything malformed falls back to auto. */
 function asPackageToolSetting(value: unknown): PackageToolSettingDTO | undefined {
 	if (typeof value !== "object" || value === null) return undefined;
@@ -72,6 +77,8 @@ interface LegacySettingsFile {
 	sidebarWidth?: unknown;
 	filetreeWidth?: unknown;
 	defaultPermissionMode?: unknown;
+	sidebarCollapsed?: unknown;
+	filetreeCollapsed?: unknown;
 }
 
 export class AppSettings {
@@ -82,6 +89,10 @@ export class AppSettings {
 	private _sidebarWidth = 260;
 	/** File tree panel width, drag-resized in the renderer (CSS clamps applied there). */
 	private _filetreeWidth = 240;
+	/** History panel fold remembered across launches (renderer Sidebar chip). */
+	private _sidebarCollapsed = false;
+	/** File tree panel fold remembered across launches (renderer FileTree chip). */
+	private _filetreeCollapsed = false;
 	/** Permission mode new tabs start with (Settings → Permissions). */
 	private _defaultPermissionMode: PermissionMode = "bypass";
 	/** npm/git install-tool locations (auto-detect on PATH, or a manual binary path). */
@@ -90,7 +101,7 @@ export class AppSettings {
 	// Setters mark dirty; save() persists only the touched fields (per store)
 	// and clears the flags. load() writes the caches directly, so a fresh read
 	// is never re-persisted.
-	private dirty = { theme: false, editor: false, sidebarWidth: false, filetreeWidth: false, defaultPermissionMode: false, packageTools: false };
+	private dirty = { theme: false, editor: false, sidebarWidth: false, filetreeWidth: false, sidebarCollapsed: false, filetreeCollapsed: false, defaultPermissionMode: false, packageTools: false };
 	private editorManager: SettingsManager | null = null;
 
 	get theme(): ThemeMode {
@@ -130,6 +141,26 @@ export class AppSettings {
 		if (value !== this._filetreeWidth) {
 			this._filetreeWidth = value;
 			this.dirty.filetreeWidth = true;
+		}
+	}
+
+	get sidebarCollapsed(): boolean {
+		return this._sidebarCollapsed;
+	}
+	set sidebarCollapsed(value: boolean) {
+		if (value !== this._sidebarCollapsed) {
+			this._sidebarCollapsed = value;
+			this.dirty.sidebarCollapsed = true;
+		}
+	}
+
+	get filetreeCollapsed(): boolean {
+		return this._filetreeCollapsed;
+	}
+	set filetreeCollapsed(value: boolean) {
+		if (value !== this._filetreeCollapsed) {
+			this._filetreeCollapsed = value;
+			this.dirty.filetreeCollapsed = true;
 		}
 	}
 
@@ -182,6 +213,8 @@ export class AppSettings {
 		this._theme = asTheme(block.desktopTheme) ?? this._theme;
 		this._sidebarWidth = asWidth(block.sidebarWidth) ?? this._sidebarWidth;
 		this._filetreeWidth = asWidth(block.filetreeWidth) ?? this._filetreeWidth;
+		this._sidebarCollapsed = asBool(block.sidebarCollapsed) ?? this._sidebarCollapsed;
+		this._filetreeCollapsed = asBool(block.filetreeCollapsed) ?? this._filetreeCollapsed;
 		this._defaultPermissionMode = asPermissionMode(block.defaultPermissionMode) ?? this._defaultPermissionMode;
 		this._packageTools = asPackageTools(block.packageTools) ?? this._packageTools;
 		// Raw persisted value (no $VISUAL/$EDITOR fallback) — resolveEditorCommand
@@ -196,6 +229,8 @@ export class AppSettings {
 		if (this.dirty.theme) patch.desktopTheme = this._theme;
 		if (this.dirty.sidebarWidth) patch.sidebarWidth = this._sidebarWidth;
 		if (this.dirty.filetreeWidth) patch.filetreeWidth = this._filetreeWidth;
+		if (this.dirty.sidebarCollapsed) patch.sidebarCollapsed = this._sidebarCollapsed;
+		if (this.dirty.filetreeCollapsed) patch.filetreeCollapsed = this._filetreeCollapsed;
 		if (this.dirty.defaultPermissionMode) patch.defaultPermissionMode = this._defaultPermissionMode;
 		if (this.dirty.packageTools) patch.packageTools = this._packageTools;
 		if (Object.keys(patch).length > 0) {
@@ -205,6 +240,8 @@ export class AppSettings {
 			this.dirty.theme = false;
 			this.dirty.sidebarWidth = false;
 			this.dirty.filetreeWidth = false;
+			this.dirty.sidebarCollapsed = false;
+			this.dirty.filetreeCollapsed = false;
 			this.dirty.defaultPermissionMode = false;
 			this.dirty.packageTools = false;
 		}
@@ -248,6 +285,10 @@ export class AppSettings {
 		if (legacyWidth !== undefined && asWidth(block.sidebarWidth) === undefined) patch.sidebarWidth = legacyWidth;
 		const legacyFiletreeWidth = asWidth(legacy.filetreeWidth);
 		if (legacyFiletreeWidth !== undefined && asWidth(block.filetreeWidth) === undefined) patch.filetreeWidth = legacyFiletreeWidth;
+		const legacySidebarCollapsed = asBool(legacy.sidebarCollapsed);
+		if (legacySidebarCollapsed !== undefined && asBool(block.sidebarCollapsed) === undefined) patch.sidebarCollapsed = legacySidebarCollapsed;
+		const legacyFiletreeCollapsed = asBool(legacy.filetreeCollapsed);
+		if (legacyFiletreeCollapsed !== undefined && asBool(block.filetreeCollapsed) === undefined) patch.filetreeCollapsed = legacyFiletreeCollapsed;
 		const legacyMode = asPermissionMode(legacy.defaultPermissionMode);
 		if (legacyMode !== undefined && asPermissionMode(block.defaultPermissionMode) === undefined) patch.defaultPermissionMode = legacyMode;
 		if (Object.keys(patch).length > 0) {
@@ -255,6 +296,8 @@ export class AppSettings {
 			this._theme = patch.desktopTheme as ThemeMode ?? this._theme;
 			this._sidebarWidth = patch.sidebarWidth as number ?? this._sidebarWidth;
 			this._filetreeWidth = patch.filetreeWidth as number ?? this._filetreeWidth;
+			this._sidebarCollapsed = patch.sidebarCollapsed as boolean ?? this._sidebarCollapsed;
+			this._filetreeCollapsed = patch.filetreeCollapsed as boolean ?? this._filetreeCollapsed;
 			this._defaultPermissionMode = patch.defaultPermissionMode as PermissionMode ?? this._defaultPermissionMode;
 		}
 		const manager = this.editors();

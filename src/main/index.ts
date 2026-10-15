@@ -11,6 +11,7 @@ import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, shell } 
 import { isImagePath } from "../shared/attachments.ts";
 import { IPC, type CompactionPatch, type DirEntryDTO, type ListDirResultDTO, type PackageToolsSettingsDTO, type PermissionMode, type ProfileDTO, type ThemeMode } from "../shared/ipc-types.ts";
 import { LoginBridge } from "./auth-bridge.ts";
+import { openInNewTab } from "./browser-link.ts";
 import { DialogBridge } from "./dialogs.ts";
 import { EXTRA_BIN_DIRS, listAvailableEditors, openInEditor } from "./editor.ts";
 import { buildApplicationMenu } from "./menu.ts";
@@ -155,13 +156,13 @@ const webPreferences = {
  */
 function guardNavigation(win: BrowserWindow): void {
 	win.webContents.setWindowOpenHandler(({ url }) => {
-		void shell.openExternal(url).catch(() => {});
+		void openInNewTab(url).catch(() => {});
 		return { action: "deny" };
 	});
 	win.webContents.on("will-navigate", (e, url) => {
 		if (url === win.webContents.getURL()) return;
 		e.preventDefault();
-		void shell.openExternal(url).catch(() => {});
+		void openInNewTab(url).catch(() => {});
 	});
 }
 
@@ -285,6 +286,8 @@ function registerIpc(): void {
 		editor: settings.editor,
 		sidebarWidth: settings.sidebarWidth,
 		filetreeWidth: settings.filetreeWidth,
+		sidebarCollapsed: settings.sidebarCollapsed,
+		filetreeCollapsed: settings.filetreeCollapsed,
 		defaultPermissionMode: settings.defaultPermissionMode,
 		packageTools: settings.packageTools,
 	}));
@@ -321,6 +324,20 @@ function registerIpc(): void {
 	ipcMain.handle(IPC.invoke.setFiletreeWidth, async (_e, width: number) => {
 		if (Number.isFinite(width)) {
 			settings.filetreeWidth = Math.round(width);
+			await settings.save();
+		}
+	});
+	// Panel fold state is remembered so both panels come back exactly as the
+	// user left them; the renderer applies the flags at startup.
+	ipcMain.handle(IPC.invoke.setSidebarCollapsed, async (_e, collapsed: boolean) => {
+		if (typeof collapsed === "boolean") {
+			settings.sidebarCollapsed = collapsed;
+			await settings.save();
+		}
+	});
+	ipcMain.handle(IPC.invoke.setFiletreeCollapsed, async (_e, collapsed: boolean) => {
+		if (typeof collapsed === "boolean") {
+			settings.filetreeCollapsed = collapsed;
 			await settings.save();
 		}
 	});
@@ -368,9 +385,11 @@ function registerIpc(): void {
 		}
 	});
 
-	// Open a URL in the OS default web browser. The renderer is sandboxed and
-	// CSP-locked to 'self', so markdown links in chat messages route through
-	// here; only http(s) may leave the app (same allowlist as auth-bridge).
+	// Open a URL in a NEW tab of the OS default web browser. The renderer is
+	// sandboxed and CSP-locked to 'self', so markdown links in chat messages
+	// route through here; only http(s) may leave the app (same allowlist as
+	// auth-bridge). macOS routes via AppleScript because bare openExternal lets
+	// the browser reuse (i.e. replace) its active tab — see browser-link.ts.
 	ipcMain.handle(IPC.invoke.openExternal, async (_e, url: string) => {
 		let parsed: URL;
 		try {
@@ -381,12 +400,7 @@ function registerIpc(): void {
 		if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
 			return `'${parsed.protocol}' links cannot be opened`;
 		}
-		try {
-			await shell.openExternal(parsed.href);
-			return "";
-		} catch (err) {
-			return String(err);
-		}
+		return (await openInNewTab(parsed.href)) ? "" : "Could not open the link in the default browser";
 	});
 
 	// One-segment directory listing for the composer's @-menu, clamped to the
