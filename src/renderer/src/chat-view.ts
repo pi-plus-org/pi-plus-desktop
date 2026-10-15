@@ -9,6 +9,7 @@ import type { ChatMessageDTO, ContentBlockDTO } from "../../shared/ipc-types.ts"
 import { thumbSrc } from "./image-thumb.ts";
 import { renderDiffView, renderAddedFile } from "./diff-view.ts";
 import { renderMarkdownToHtml, escapeHtml } from "./markdown.ts";
+import { notify } from "./dialogs.ts";
 import { store, type ChatItem, type TabState, type ToolBlock } from "./store.ts";
 
 function el(tag: string, className?: string, text?: string): HTMLElement {
@@ -255,6 +256,22 @@ export class ChatView {
 
 	constructor(root: HTMLElement) {
 		this.root = root;
+		// Markdown links in chat messages open in the OS default browser: the
+		// window itself must never navigate away (sandbox + CSP 'self' would
+		// silently swallow the click anyway), so intercept the click on the
+		// delegated root and hand the href to the main process.
+		root.addEventListener("click", (e) => {
+			const mouse = e as MouseEvent;
+			if (mouse.defaultPrevented || mouse.button !== 0 || mouse.metaKey || mouse.ctrlKey || mouse.shiftKey || mouse.altKey) return;
+			const anchor = (e.target as HTMLElement | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+			if (!anchor || !this.root.contains(anchor)) return;
+			const url = anchor.href;
+			if (!/^https?:/i.test(url)) return;
+			e.preventDefault();
+			void window.pi.openExternal(url).then((error) => {
+				if (error) notify(`Could not open '${url}': ${error}`, "error");
+			});
+		});
 	}
 
 	containerFor(tab: TabState): HTMLElement {

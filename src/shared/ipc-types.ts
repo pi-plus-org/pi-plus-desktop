@@ -455,6 +455,7 @@ export const IPC = {
 		saveAttachment: "attachment:save",
 		listDir: "fs:listDir",
 		revealPath: "shell:revealPath",
+		openExternal: "shell:openExternal",
 		respondDialog: "dialog:respond",
 		respondAuthPrompt: "auth:respond",
 		packagesList: "packages:list",
@@ -602,6 +603,11 @@ export interface PiApi {
 	 * Resolves to "" on success, or the error message.
 	 */
 	revealPath(path: string): Promise<string>;
+	/**
+	 * Open a URL in the OS default web browser (http/https only).
+	 * Resolves to "" on success, or the error message.
+	 */
+	openExternal(url: string): Promise<string>;
 	respondDialog(requestId: string, value: unknown): void;
 	/** Answer a bridged login prompt; null rejects it as "Login cancelled". */
 	respondAuthPrompt(requestId: string, value: string | null): void;

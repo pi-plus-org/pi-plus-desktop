@@ -148,6 +148,23 @@ const webPreferences = {
 	webSecurity: true,
 };
 
+/**
+ * Keep app windows inside the app: any http(s) navigation a link click still
+ * manages to trigger (target=_blank popups, mid-anchored hrefs) goes to the
+ * default browser instead of replacing the window's content.
+ */
+function guardNavigation(win: BrowserWindow): void {
+	win.webContents.setWindowOpenHandler(({ url }) => {
+		void shell.openExternal(url).catch(() => {});
+		return { action: "deny" };
+	});
+	win.webContents.on("will-navigate", (e, url) => {
+		if (url === win.webContents.getURL()) return;
+		e.preventDefault();
+		void shell.openExternal(url).catch(() => {});
+	});
+}
+
 function createWindow(): void {
 	mainWindow = new BrowserWindow({
 		width: 1280,
@@ -158,6 +175,7 @@ function createWindow(): void {
 		icon: appIcon(),
 		webPreferences,
 	});
+	guardNavigation(mainWindow);
 	mainWindow.loadFile(path.join(__dirname, "renderer/index.html"));
 	mainWindow.on("closed", () => {
 		mainWindow = null;
@@ -178,6 +196,7 @@ function openSettingsWindow(): void {
 		icon: appIcon(),
 		webPreferences,
 	});
+	guardNavigation(settingsWindow);
 	settingsWindow.loadFile(path.join(__dirname, "renderer/settings.html"));
 	settingsWindow.on("closed", () => {
 		settingsWindow = null;
@@ -201,6 +220,7 @@ function openPackagesWindow(): void {
 		icon: appIcon(),
 		webPreferences,
 	});
+	guardNavigation(packagesWindow);
 	packagesWindow.loadFile(path.join(__dirname, "renderer/packages.html"));
 	packagesWindow.on("closed", () => {
 		packagesWindow = null;
@@ -345,6 +365,27 @@ function registerIpc(): void {
 		} catch {
 			// No file manager to reveal in (e.g. headless Linux): just open it.
 			return shell.openPath(target);
+		}
+	});
+
+	// Open a URL in the OS default web browser. The renderer is sandboxed and
+	// CSP-locked to 'self', so markdown links in chat messages route through
+	// here; only http(s) may leave the app (same allowlist as auth-bridge).
+	ipcMain.handle(IPC.invoke.openExternal, async (_e, url: string) => {
+		let parsed: URL;
+		try {
+			parsed = new URL(url);
+		} catch {
+			return `'${url}' is not a valid URL`;
+		}
+		if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+			return `'${parsed.protocol}' links cannot be opened`;
+		}
+		try {
+			await shell.openExternal(parsed.href);
+			return "";
+		} catch (err) {
+			return String(err);
 		}
 	});
 

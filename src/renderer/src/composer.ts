@@ -176,7 +176,10 @@ export class Composer {
 	private usageChip!: HTMLElement;
 	// permission-mode chip in the chat box's bottom strip (constructor)
 	private permissionBtn!: HTMLButtonElement;
-	private sendMode: "steer" | "followUp" = "followUp";
+	// TUI parity: mid-run input steers (delivered at the next turn boundary).
+	// Follow-up waits for the whole run to settle — wrong default behind long
+	// tool loops; the chip toggles it for the rare ask-when-done case.
+	private sendMode: "steer" | "followUp" = "steer";
 	private skillsPopover: HTMLElement | null = null;
 	private closeSkillsPopover: (() => void) | null = null;
 
