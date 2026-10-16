@@ -12,6 +12,11 @@
  * line-initial "/" opens the slash-command menu (extension commands, prompt
  * templates and skills — the session-executable set — plus the "/compact"
  * builtin, which submit() intercepts like the pi TUI and never sends).
+ * With the menus closed, ArrowUp at the start of the draft walks back through
+ * the tab's sent prompts (its own transcript, so a resumed session is the
+ * whole history) and ArrowDown walks forward, restoring the stashed draft once
+ * past the newest — readline-style recall of prompt *text* only; attachment
+ * chips are never touched.
  *
  * A single status strip above the box merges the session capabilities
  * (model and thinking pickers, skills popover, manual compact/abort) with
@@ -159,6 +164,15 @@ export class Composer {
 		{ name: "compact", description: "Compact the context now (optional focus instructions)", source: "builtin" },
 	];
 	private lastTabId: string | null = null;
+	// Prompt-history recall (ArrowUp/ArrowDown in an empty or caret-at-start box).
+	/** Recalled prompts, oldest first, rebuilt when the transcript changes. */
+	private history: string[] = [];
+	/** Transcript identity the cache was built from (tab id + item count). */
+	private historyKey = "";
+	/** Index into `history` while walking, or `history.length` = the live draft. */
+	private historyIndex: number | null = null;
+	/** Draft parked when a walk started, restored past the newest entry. */
+	private historyStash = "";
 	private onSend: (text: string, attachments: string[], mode?: "steer" | "followUp") => void;
 	private dialogs: Dialogs;
 	// status strip widgets (built in the constructor / buildToolbar)
@@ -189,6 +203,7 @@ export class Composer {
 		this.textarea = document.createElement("textarea");
 		this.textarea.className = "composer-input";
 		this.textarea.placeholder = "Message pi… (Enter to send, Shift+Enter for newline)";
+		this.textarea.title = "Enter to send · Shift+Enter for newline · ↑/↓ recall your earlier prompts";
 		// Fixed 3-line box; overflow scrolls inside the textarea (no autosize).
 		this.textarea.rows = 3;
 
@@ -233,6 +248,7 @@ export class Composer {
 			if (e.isComposing) return;
 			if (this.handleSlashKeydown(e)) return;
 			if (this.handleAtKeydown(e)) return;
+			if (this.handleHistoryKeydown(e)) return;
 			if (e.key === "Escape" && store.active?.streaming) {
 				e.preventDefault();
 				void window.pi.abort(store.activeTabId);
@@ -1165,6 +1181,93 @@ export class Composer {
 		this.slashMenu.replaceChildren();
 	}
 
+	// ------------------------------------------------------------------
+	// Prompt-history recall (ArrowUp / ArrowDown, menus closed)
+	// ------------------------------------------------------------------
+
+	/** The tab's sent prompts, oldest first — the transcript's user items with
+	 *  blanks and consecutive repeats dropped. Cached per tab + item count, so a
+	 *  resumed session offers its whole history without rebuilding per keystroke. */
+	private historyEntries(): string[] {
+		const tab = store.active;
+		const key = tab ? `${tab.tabId}:${tab.items.length}` : "";
+		if (key === this.historyKey) return this.history;
+		this.historyKey = key;
+		const out: string[] = [];
+		for (const item of tab?.items ?? []) {
+			if (item.kind !== "user") continue;
+			// A dropped queue entry never reached the session, so it is not a prompt.
+			if (item.queued?.state === "dropped") continue;
+			const text = item.text;
+			if (!text.trim() || out[out.length - 1] === text) continue;
+			out.push(text);
+		}
+		this.history = out;
+		return out;
+	}
+
+	private endHistoryWalk(): void {
+		this.historyIndex = null;
+		this.historyStash = "";
+	}
+
+	/**
+	 * The draft to park when the tab changes: while an *untouched* recall is on
+	 * screen the textarea holds a transcript line, so the parked draft stays the
+	 * text the user had typed before the walk started.
+	 */
+	private draftText(): string {
+		if (this.historyIndex !== null && this.textarea.value === this.history[this.historyIndex]) return this.historyStash;
+		return this.textarea.value;
+	}
+
+	/**
+	 * Readline-style recall. A walk starts only on ArrowUp with the caret at the
+	 * very beginning of the draft (unmodified ↑/↓ inside a multi-line draft must
+	 * keep moving the caret; at index 0 it has nowhere to go, so recall is the
+	 * useful action). While walking, ↑/↓ move through the entries as long as the
+	 * text is untouched — any edit ends the walk, and ↓ past the newest entry
+	 * puts the parked draft back.
+	 */
+	private handleHistoryKeydown(e: KeyboardEvent): boolean {
+		const down = e.key === "ArrowDown";
+		if (!down && e.key !== "ArrowUp") return false;
+		if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || this.textarea.disabled) return false;
+		const value = this.textarea.value;
+		// An edited recall is no longer a transcript line: drop the walk and let the
+		// arrow move the caret (↑ from index 0 then starts a fresh walk).
+		if (this.historyIndex !== null && value !== this.history[this.historyIndex]) this.endHistoryWalk();
+		if (this.historyIndex === null) {
+			if (down || this.textarea.selectionStart !== 0 || this.textarea.selectionEnd !== 0) return false;
+		}
+		const entries = this.historyEntries();
+		if (entries.length === 0) return false;
+		if (this.historyIndex === null) {
+			this.historyStash = value;
+			this.historyIndex = entries.length; // virtual slot: the live draft
+		}
+		const next = this.historyIndex + (down ? 1 : -1);
+		if (next < 0) {
+			// Oldest prompt reached: stay put rather than losing it.
+			e.preventDefault();
+			return true;
+		}
+		if (next >= entries.length) {
+			// Past the newest: put the parked draft back and leave the walk.
+			this.textarea.value = this.historyStash;
+			this.textarea.setSelectionRange(this.historyStash.length, this.historyStash.length);
+			this.endHistoryWalk();
+			e.preventDefault();
+			return true;
+		}
+		this.historyIndex = next;
+		this.textarea.value = entries[next] ?? "";
+		this.textarea.setSelectionRange(this.textarea.value.length, this.textarea.value.length);
+		this.textarea.scrollTop = 0;
+		e.preventDefault();
+		return true;
+	}
+
 	private submit(): void {
 		const text = this.textarea.value.trim();
 		if (!text) return;
@@ -1174,6 +1277,7 @@ export class Composer {
 		if (text === "/compact" || text.startsWith("/compact ")) {
 			const rest = text.slice("/compact".length).trim();
 			this.textarea.value = "";
+			this.endHistoryWalk();
 			this.closeSlashMenu();
 			this.closeAtMenu();
 			void this.runCompact(rest || undefined);
@@ -1182,6 +1286,7 @@ export class Composer {
 		const attachments = this.attachments;
 		const mode = store.active?.streaming ? this.sendMode : undefined;
 		this.textarea.value = "";
+		this.endHistoryWalk();
 		this.attachments = [];
 		this.folderPaths.clear();
 		this.closeAtMenu();
@@ -1216,7 +1321,7 @@ export class Composer {
 		if (store.activeTabId !== this.lastTabId) {
 			const prev = this.lastTabId ? store.tabs.get(this.lastTabId) : undefined;
 			if (prev) {
-				prev.draft = this.textarea.value;
+				prev.draft = this.draftText();
 				prev.draftAttachments = [...this.attachments];
 				prev.draftFolders = [...this.folderPaths];
 			}
@@ -1228,6 +1333,9 @@ export class Composer {
 			this.closeAtMenu();
 			this.closeSlashMenu();
 			this.closeSkills();
+			this.endHistoryWalk();
+			this.history = [];
+			this.historyKey = "";
 			this.atCache.clear();
 			this.slashCache.clear();
 		}
@@ -1242,7 +1350,7 @@ export class Composer {
 	flushDraft(): void {
 		const prev = this.lastTabId ? store.tabs.get(this.lastTabId) : undefined;
 		if (!prev) return;
-		prev.draft = this.textarea.value;
+		prev.draft = this.draftText();
 		prev.draftAttachments = [...this.attachments];
 		prev.draftFolders = [...this.folderPaths];
 	}

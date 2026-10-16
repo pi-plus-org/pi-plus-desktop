@@ -183,22 +183,26 @@ async function sendPrompt(text: string, attachments: string[] = [], mode?: "stee
 	const tabId = store.activeTabId;
 	if (!tabId) return;
 	// Local echo: the SDK emits no event for user messages. A mode means the
-	// prompt lands in the steering/follow-up queue, so tag the echo "queued"
-	// — the store promotes it on delivery (queue_update -> message_end) or
-	// marks it dropped when an abort/clear discards it.
-	const index = store.appendUserItem(tabId, text, attachments, mode);
+	// prompt goes to the steering/follow-up queue, so the echo starts out
+	// "pending" — invisible to queue reconciliation until the main process
+	// confirms the send (a prompt racing auto-compaction is retried there and can
+	// legitimately miss the queue for seconds), then "queued" under the expanded
+	// text, "delivered" on consumption, or "dropped" if an abort discards it.
+	const { echoId } = store.appendUserItem(tabId, text, attachments, mode);
 	try {
-		await window.pi.prompt(tabId, text, attachments, mode);
+		const result = await window.pi.prompt(tabId, text, attachments, mode);
+		store.resolveEcho(tabId, echoId, result);
 	} catch (err) {
 		const message = String((err as Error).message ?? err);
 		if (message.includes("send stalled")) {
-			// The host gave up waiting, but the send may still land late. Keep
-			// the echo "queued"; agent_end reconciliation flips it to dropped
-			// only if delivery truly never happens.
+			// The host gave up waiting, but the send may still land late. Enrol the
+			// echo on the raw text; agent_end reconciliation flips it to dropped only
+			// if delivery truly never happens.
+			store.resolveEcho(tabId, echoId);
 			dialogs.notify(`Send uncertain: ${message}`, "error");
 			return;
 		}
-		store.removeItemAt(tabId, index);
+		store.removeEcho(tabId, echoId);
 		composerRef?.restoreAttachments(attachments);
 		dialogs.notify(`Send failed: ${message}`, "error");
 	}

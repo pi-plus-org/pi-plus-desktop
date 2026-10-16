@@ -12,6 +12,7 @@
 		"smoke": "node scripts/smoke.mjs",
 		"test:thinking": "node scripts/test-thinking-dom.mjs",
 		"test:panels": "node scripts/test-panel-fold.mjs",
+		"test:history": "node scripts/test-composer-history.mjs",
 		"test:steer-queue": "node scripts/test-steer-queue.mjs",
 		"test:steer-e2e": "node scripts/test-steer-e2e.mjs",
 		"test:steer-longtool": "node scripts/test-steer-longtool.mjs",

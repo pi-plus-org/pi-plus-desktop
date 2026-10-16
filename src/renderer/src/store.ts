@@ -9,6 +9,7 @@ import type {
 	ContentBlockDTO,
 	EnsureResult,
 	PermissionMode,
+	PromptResultDTO,
 	QueueDTO,
 	SanitizedEvent,
 	SessionListItemDTO,
@@ -29,10 +30,15 @@ export interface ToolBlock {
 /**
  *  Transcript item. `queued` is set when the message was echoed while the
  *  agent was streaming, i.e. it went into the steering/follow-up queue
- *  instead of starting a turn: "queued" = still pending in the SDK queue,
- *  "delivered" = the agent consumed it (the echo is reordered to its true
- *  transcript slot at that moment), "dropped" = the queue was discarded
- *  (abort) before delivery.
+ *  instead of starting a turn: "pending" = the main process has not confirmed it
+ *  reached the session yet (a send racing auto-compaction is retried there, so
+ *  this can last seconds — nothing may conclude it was lost), "queued" = the
+ *  session holds it in the SDK queue, "delivered" = the agent consumed it (the
+ *  echo is reordered to its true transcript slot at that moment), "dropped" =
+ *  the queue was discarded (abort) before delivery. `matchKey` is the text the
+ *  queue and delivery events carry: slash commands are *expanded* before
+ *  queueing, so it differs from the raw `text` the user typed. `echoId` lets the
+ *  send promise address this row after a reorder.
  */
 export type ChatItem =
 	| {
@@ -40,7 +46,12 @@ export type ChatItem =
 			text: string;
 			ts?: number;
 			attachments?: string[];
-			queued?: { mode: "steer" | "followUp"; state: "queued" | "delivered" | "dropped" };
+			echoId?: number;
+			queued?: {
+				mode: "steer" | "followUp";
+				state: "pending" | "queued" | "delivered" | "dropped";
+				matchKey?: string;
+			};
 	  }
 	| { kind: "assistant"; message: ChatMessageDTO }
 	| { kind: "toolResult"; message: ChatMessageDTO }
@@ -136,6 +147,8 @@ export function messageToItems(message: ChatMessageDTO): ChatItem[] {
 }
 
 class Store {
+	private echoSeq = 0;
+
 	tabs = new Map<string, TabState>();
 	order: string[] = [];
 	activeTabId = "";
@@ -280,20 +293,64 @@ class Store {
 		this.emit({ type: "meta", tabId });
 	}
 
-	/** Optimistic echo of the user's sent message (the SDK emits no event for it). */
-	appendUserItem(tabId: string, text: string, attachments?: string[], queueMode?: "steer" | "followUp"): number {
+	/** Optimistic echo of the user's sent message (the SDK emits no event for it).
+	 *  Returns the transcript index plus the `echoId` used to reconcile the row
+	 *  once the main process reports what it did with the send — indexes shift
+	 *  when deliveries reorder the transcript, echo ids do not. */
+	appendUserItem(tabId: string, text: string, attachments?: string[], queueMode?: "steer" | "followUp"): { index: number; echoId: number } {
 		const tab = this.tabs.get(tabId);
-		if (!tab) return -1;
+		if (!tab) return { index: -1, echoId: -1 };
+		const echoId = ++this.echoSeq;
 		tab.items.push({
 			kind: "user",
 			text,
 			ts: Date.now(),
 			...(attachments && attachments.length > 0 ? { attachments } : {}),
-			...(queueMode ? { queued: { mode: queueMode, state: "queued" as const } } : {}),
+			echoId,
+			...(queueMode ? { queued: { mode: queueMode, state: "pending" as const } } : {}),
 		});
 		this.emit({ type: "chat", tabId });
 		this.emit({ type: "tabs" }); // label comes from the first user message
-		return tab.items.length - 1;
+		return { index: tab.items.length - 1, echoId };
+	}
+
+	/**
+	 *  Reconcile an echo with the main process' report (`session-host.prompt()`).
+	 *  While it was "pending" nothing was allowed to call it lost: a send racing
+	 *  auto-compaction sits in the host's retry loop for seconds and the SDK queue
+	 *  legitimately does not hold it yet. Now that the session has it, enrol the
+	 *  echo in queue reconciliation under the text the *queue* carries (slash
+	 *  commands arrive expanded, unlike the raw bubble), or retire it as a plain
+	 *  message when it never entered a queue at all (it started a run, or an
+	 *  extension command handled it). "unknown" (or no result at all: the send
+	 *  stalled in the host) means the session deferred it and nothing is known
+	 *  beyond "not lost" — enrol it on the raw text and let the queue events settle
+	 *  it, the pre-existing reconciliation.
+	 */
+	resolveEcho(tabId: string, echoId: number, result?: PromptResultDTO): void {
+		const tab = this.tabs.get(tabId);
+		if (!tab) return;
+		const item = tab.items.find((i) => i.kind === "user" && i.echoId === echoId);
+		if (item?.kind !== "user" || !item.queued || item.queued.state !== "pending") return;
+		if (result && result.disposition !== "queued" && result.disposition !== "unknown") {
+			item.queued.state = "delivered";
+		} else {
+			item.queued.state = "queued";
+			if (result?.queuedText) item.queued.matchKey = result.queuedText;
+			// The snapshot may predate this enqueue (the queue_update event and the
+			// IPC reply are different channels): re-check shortly so a send that
+			// really never made it cannot rot as "queued".
+			this.scheduleDropCheck(tab);
+		}
+		this.emit({ type: "chat", tabId });
+	}
+
+	/** Drop the echo of a send the session rejected. */
+	removeEcho(tabId: string, echoId: number): void {
+		const tab = this.tabs.get(tabId);
+		if (!tab) return;
+		const index = tab.items.findIndex((i) => i.kind === "user" && i.echoId === echoId);
+		if (index >= 0) this.removeItemAt(tabId, index);
 	}
 
 	removeItemAt(tabId: string, index: number): void {
@@ -462,8 +519,8 @@ class Store {
 				// queues, so a stopped run reconciles here too.
 				let stale = false;
 				for (const item of tab.items) {
-					if (item.kind === "user" && item.queued?.state === "queued" && !this.queueHolds(tab, item.text)) {
-						item.queued.state = "dropped";
+					if (item.kind === "user" && this.echoIsLost(tab, item)) {
+						item.queued!.state = "dropped";
 						stale = true;
 					}
 				}
@@ -543,11 +600,27 @@ class Store {
 		let match: ChatItem | undefined;
 		for (const item of tab.items) {
 			if (item.kind !== "user" || item.queued?.state !== "queued" || !item.text) continue;
-			if (item.text === delivered) {
+			// The queue and the delivery carry the expanded text, so match against it
+			// when the send went through a slash command; the prefix rule keeps
+			// attachment-composed sends claiming their raw echo.
+			const key = item.queued.matchKey ?? item.text;
+			if (key === delivered) {
 				match = item;
 				break;
 			}
-			if (!match && delivered.startsWith(item.text)) match = item;
+			if (!match && delivered.startsWith(key)) match = item;
+		}
+		if (!match) {
+			// A delivery can outrun the host's reply (event and IPC reply are different
+			// channels): claim a still-pending echo, but only on an exact text match so
+			// an unrelated prefix can never steal a send that is mid-retry.
+			for (const item of tab.items) {
+				if (item.kind !== "user" || item.queued?.state !== "pending" || !item.text) continue;
+				if (item.text === delivered) {
+					match = item;
+					break;
+				}
+			}
 		}
 		if (!match || match.kind !== "user" || !match.queued) return;
 		match.queued.state = "delivered";
@@ -566,8 +639,8 @@ class Store {
 			if (!this.tabs.has(tab.tabId)) return;
 			let changed = false;
 			for (const item of tab.items) {
-				if (item.kind === "user" && item.queued?.state === "queued" && !this.queueHolds(tab, item.text)) {
-					item.queued.state = "dropped";
+				if (item.kind === "user" && this.echoIsLost(tab, item)) {
+					item.queued!.state = "dropped";
 					changed = true;
 				}
 			}
@@ -575,10 +648,20 @@ class Store {
 		}, 600);
 	}
 
-	/** Whether the raw echo text is still pending in either queue array. */
-	private queueHolds(tab: TabState, raw: string): boolean {
+	/** Whether this echo is still pending in either queue array. The queue carries
+	 *  the expanded text (`matchKey`) when the send went through a slash command;
+	 *  the prefix fallback keeps attachment-composed sends matched. */
+	private queueHolds(tab: TabState, item: Extract<ChatItem, { kind: "user" }>): boolean {
+		const raw = item.queued?.matchKey ?? item.text;
 		const holds = (list: string[]) => list.some((t) => t === raw || t.startsWith(raw));
 		return holds(tab.queue.steering) || holds(tab.queue.followUp);
+	}
+
+	/** A "queued" echo the latest queue snapshot no longer holds: it was lost
+	 *  (abort/clear) rather than delivered. "pending" echoes are never judged
+	 *  here - the main process may still be retrying the send. */
+	private echoIsLost(tab: TabState, item: Extract<ChatItem, { kind: "user" }>): boolean {
+		return item.queued?.state === "queued" && !this.queueHolds(tab, item);
 	}
 
 	private finalizeStream(tab: TabState): void {

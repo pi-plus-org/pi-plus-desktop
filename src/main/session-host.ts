@@ -26,6 +26,7 @@ import {
 	type EnsureResult,
 	type ForkTargetDTO,
 	type ModelRefDTO,
+	type PromptResultDTO,
 	type QueueDTO,
 	type SessionListItemDTO,
 	type SessionMetaDTO,
@@ -441,12 +442,18 @@ export class SessionHost {
 		}
 	}
 
-	async prompt(tabId: string, text: string, attachments?: string[], mode?: "steer" | "followUp"): Promise<void> {
+	/**
+	 * Send a user prompt. Resolves with what the session actually did with it: the
+	 * renderer painted an optimistic echo of the *raw* text, but slash commands
+	 * are expanded before queueing and a send racing auto-compaction is retried
+	 * here, so only the main process knows when the message truly lands.
+	 */
+	async prompt(tabId: string, text: string, attachments?: string[], mode?: "steer" | "followUp"): Promise<PromptResultDTO> {
 		const tab = this.getTab(tabId);
 		await this.ensureSession(tabId);
 		// ensureSession above guarantees the runtime exists; streamingBehavior
 		// only matters while a turn is in flight (queued as steer/follow-up).
-		await this.submitPrompt(tab, composePromptText(text, attachments), mode ?? "followUp");
+		return this.submitPrompt(tab, composePromptText(text, attachments), mode ?? "followUp");
 	}
 
 	/** Bound on waiting for session.prompt() to settle. Extension `input`
@@ -461,11 +468,21 @@ export class SessionHost {
 	 * losing user input to a timing race is worse than a brief delay. */
 	private static readonly promptRetryMs = 30_000;
 
-	private async submitPrompt(tab: TabHandle, composed: string, behavior: "steer" | "followUp"): Promise<void> {
+	private async submitPrompt(tab: TabHandle, composed: string, behavior: "steer" | "followUp"): Promise<PromptResultDTO> {
 		const session = this.sessionOf(tab);
 		const deadline = Date.now() + SessionHost.promptRetryMs;
 		for (;;) {
-			const attempt = session.prompt(composed, { streamingBehavior: behavior });
+			let disposition: PromptResultDTO["disposition"] | undefined;
+			const attempt = session.prompt(composed, {
+				streamingBehavior: behavior,
+				// The SDK reports the outcome synchronously before it starts waiting
+				// on the run: "queued" (steer/follow-up), "started" (idle turn) or
+				// "handled" (extension command / input handler consumed it). It stays
+				// unset only when the session defers the send (agent_settled emit).
+				preflightResult: (result) => {
+					disposition = result === "queued" || result === "handled" ? result : "started";
+				},
+			});
 			// The stall bound only applies to the enqueue path: while a run is
 			// streaming, prompt() must settle almost immediately (queue +
 			// queue_update). An idle prompt instead starts a run and settles
@@ -491,7 +508,13 @@ export class SessionHost {
 				} else {
 					await attempt;
 				}
-				return;
+				if (disposition !== "queued") return { disposition: disposition ?? "unknown" };
+				// The queue holds the *expanded* text (a skill command becomes its
+				// system-reminder block), and prompt() settles in the same tick as the
+				// push, so the tail of the queue is the message just sent. Hand it back
+				// so the echo can be matched against later queue_update/delivery events.
+				const queue = behavior === "steer" ? session.getSteeringMessages() : session.getFollowUpMessages();
+				return { disposition: "queued", queuedText: queue.length > 0 ? queue[queue.length - 1] : composed };
 			} catch (error) {
 				// A stalled call may still settle later; its queueing then
 				// surfaces via queue_update. Keep the orphan rejection inert.

@@ -135,6 +135,24 @@ export interface QueueDTO {
 	followUp: string[];
 }
 
+/**
+ * What the main process actually did with a `prompt()` send, so the renderer can
+ * reconcile the optimistic echo it painted. `session.prompt()` expands slash
+ * commands (skills, prompt templates, extension commands) before queueing, and a
+ * send that arrives while auto-compaction is running is retried until the run
+ * accepts it — in both cases the queue holds text the echo never saw.
+ */
+export interface PromptResultDTO {
+	/** "queued" — pushed onto the steering/follow-up queue and waiting for a turn
+	 *  boundary; "started" — it began a run directly (the tab was idle); "handled"
+	 *  — an extension command or input handler consumed it without a model turn;
+	 *  "unknown" — the session deferred the send (it landed while agent_settled was
+	 *  being emitted), so nothing is known beyond "not lost". */
+	disposition: "queued" | "started" | "handled" | "unknown";
+	/** The expanded text sitting in the queue (only when disposition is "queued"). */
+	queuedText?: string;
+}
+
 /** One agent task from the pi-plus-tasks store, as pushed for the pinned todo
  *  glance (read-only; description/blocks stay main-side). */
 export interface TaskDTO {
@@ -496,7 +514,9 @@ export interface PiApi {
 	createTab(opts: { cwd?: string; profileName?: string | null }): Promise<TabDescriptor>;
 	ensureSession(tabId: string, resumePath?: string): Promise<EnsureResult>;
 	/** `mode` decides queueing when a turn is already streaming (default followUp). */
-	prompt(tabId: string, text: string, attachments?: string[], mode?: "steer" | "followUp"): Promise<void>;
+	/** Send a prompt; resolves once the main process has handed it to the session
+	 *  (after any compaction retry), with the disposition + expanded queued text. */
+	prompt(tabId: string, text: string, attachments?: string[], mode?: "steer" | "followUp"): Promise<PromptResultDTO>;
 	abort(tabId: string): Promise<void>;
 	closeTab(tabId: string): Promise<void>;
 	/** Switch the tab's profile: disposes the runtime and starts a fresh session

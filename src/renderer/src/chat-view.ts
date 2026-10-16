@@ -54,19 +54,28 @@ function renderUserItem(item: Extract<ChatItem, { kind: "user" }>): HTMLElement 
 		// Optimistic steer/follow-up echo: dimmed + tagged until the SDK
 		// delivers it (state flips to "delivered" -> plain bubble at its
 		// transcript slot) or discards it (abort/clear -> "not delivered").
-		row.classList.add(item.queued.state === "queued" ? "msg-queued" : "msg-dropped");
+		const state = item.queued.state;
+		const label = item.queued.mode === "steer" ? "steering" : "follow-up";
+		row.classList.add(state === "dropped" ? "msg-dropped" : "msg-queued");
 		const tag = el(
 			"span",
 			"msg-queued-tag",
-			item.queued.state === "queued"
-				? `queued · ${item.queued.mode === "steer" ? "steering" : "follow-up"}`
-				: "not delivered",
+			state === "pending"
+				? `sending · ${label}`
+				: state === "queued"
+					? `queued · ${label}`
+					: "not delivered",
 		);
 		// Say honestly *when* each mode gets its turn: steering is injected at
 		// the next turn boundary (which can be far away behind a long tool
 		// loop), a follow-up only runs once the agent would otherwise stop —
 		// an endless tool loop never stops, so it may wait the whole run.
-		if (item.queued.state === "queued") {
+		if (state === "pending") {
+			// The main process still owns this send: it retries while the session is
+			// busy (auto-compaction refuses prompts mid-compact), so the queue not
+			// holding it yet means nothing worse than "still in flight".
+			tag.title = `Waiting for the session to accept this ${label} message (retried while it is busy)`;
+		} else if (state === "queued") {
 			tag.title =
 				item.queued.mode === "steer"
 					? "Waiting for the next turn boundary to interrupt the run"
