@@ -18,7 +18,7 @@ export interface TabDescriptor {
 }
 
 /** Tool-call permission mode, mirroring the SDK's pi-plus-permissions modes. */
-export type PermissionMode = "bypass" | "acceptEdits" | "plan";
+export type PermissionMode = "bypass" | "acceptEdits" | "auto" | "plan";
 
 /** Content blocks with image payloads replaced by placeholders. */
 export type ContentBlockDTO =
@@ -329,7 +329,7 @@ export interface DialogRequestDTO {
 }
 
 export interface MenuActionDTO {
-	action: "new-tab" | "close-active-tab" | "prev-tab" | "next-tab" | "toggle-sidebar" | "toggle-filetree" | "edit-externally" | "reload-history";
+	action: "new-tab" | "close-active-tab" | "prev-tab" | "next-tab" | "toggle-sidebar" | "toggle-filetree" | "edit-externally" | "reload-history" | "focus-composer";
 }
 
 /** One entry of a tab-cwd directory listing (for the composer's @-menu). */

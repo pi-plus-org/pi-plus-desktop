@@ -971,7 +971,7 @@ body {
 
 /* Permission-mode dropdown in the chat box's bottom strip, left of ✎
    (Shift+Tab cycles; the popup reuses .profile-menu styling). acceptEdits
-   tints blue, plan mode amber. */
+   tints blue, auto green, plan mode amber. */
 .permission-btn {
 	width: fit-content;
 	background: none;
@@ -995,6 +995,10 @@ body {
 
 .permission-btn.permission-acceptEdits {
 	color: var(--accent);
+}
+
+.permission-btn.permission-auto {
+	color: var(--ok);
 }
 
 .permission-btn.permission-plan {
@@ -1555,6 +1559,10 @@ body {
 
 .permission-card-acceptEdits .permission-card-icon {
 	color: var(--accent);
+}
+
+.permission-card-auto .permission-card-icon {
+	color: var(--ok);
 }
 
 .permission-card-plan .permission-card-icon {

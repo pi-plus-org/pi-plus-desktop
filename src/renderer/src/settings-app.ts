@@ -245,6 +245,7 @@ function init(): void {
 	const PERMISSION_CHOICES: { label: string; mode: PermissionMode; glyph: string; desc: string }[] = [
 		{ label: "Bypass", mode: "bypass", glyph: "»", desc: "Every tool runs without asking — pi's classic behavior." },
 		{ label: "Accept edits", mode: "acceptEdits", glyph: "✓", desc: "File edits run freely; shell commands and other tools ask first." },
+		{ label: "Auto mode", mode: "auto", glyph: "◎", desc: "In-project reads and edits run unattended; everything else is judged by an action classifier, with blocks offered for override." },
 		{ label: "Plan mode", mode: "plan", glyph: "∥", desc: "Read-only research — edits and changing shell commands are blocked." },
 	];
 	const permissionsPane = el("div", "settings-pane");

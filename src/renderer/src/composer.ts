@@ -40,12 +40,13 @@ const MAX_AT_TOKEN = 256;
 const MAX_DND_SAVE_BYTES = 25 * 1024 * 1024;
 
 /** Shift+Tab cycles forward through this order (the SDK's canonical order). */
-const PERMISSION_ORDER: PermissionMode[] = ["bypass", "acceptEdits", "plan"];
+const PERMISSION_ORDER: PermissionMode[] = ["bypass", "acceptEdits", "auto", "plan"];
 const PERMISSION_UI: Record<PermissionMode, { chip: string; hint: string }> = {
 	// Plain text glyphs — ⚡ and ⏸ would render as fixed-color emoji and
 	// ignore the chip's CSS tint.
 	bypass: { chip: "» bypass", hint: "every tool runs without asking" },
 	acceptEdits: { chip: "✓ accept edits", hint: "file edits run freely; shell and other tools ask first" },
+	auto: { chip: "◎ auto", hint: "in-project reads and edits run unattended; everything else is judged by the model" },
 	plan: { chip: "∥ plan mode", hint: "read-only research; changes are blocked" },
 };
 
@@ -203,7 +204,7 @@ export class Composer {
 		this.textarea = document.createElement("textarea");
 		this.textarea.className = "composer-input";
 		this.textarea.placeholder = "Message pi… (Enter to send, Shift+Enter for newline)";
-		this.textarea.title = "Enter to send · Shift+Enter for newline · ↑/↓ recall your earlier prompts";
+		this.textarea.title = "Enter to send · Shift+Enter for newline · ↑/↓ recall your earlier prompts · ⌥⌘C to jump here";
 		// Fixed 3-line box; overflow scrolls inside the textarea (no autosize).
 		this.textarea.rows = 3;
 
@@ -1365,6 +1366,7 @@ export class Composer {
 		this.permissionBtn.textContent = `${permissionUi.chip} ▾`;
 		this.permissionBtn.title = `${permissionUi.chip} — ${permissionUi.hint} (Shift+Tab cycles)`;
 		this.permissionBtn.classList.toggle("permission-acceptEdits", mode === "acceptEdits");
+		this.permissionBtn.classList.toggle("permission-auto", mode === "auto");
 		this.permissionBtn.classList.toggle("permission-plan", mode === "plan");
 		const model = active?.meta?.model;
 		this.modelBtn.textContent = `◈ ${model ? shortModel(model) : "Model"}`;
@@ -1399,7 +1401,12 @@ export class Composer {
 		this.renderUsage(active);
 	}
 
+	/** Jump the caret into the chat box (View > Focus Chat Box, ⌥⌘C). No-op when
+	 *  disabled — with no tab open the textarea isn't focusable anyway. */
 	focus(): void {
 		this.textarea.focus();
+		// Land the caret at the end of the draft instead of wherever the last
+		// blur left it, so the chord doubles as "resume typing".
+		this.textarea.setSelectionRange(this.textarea.value.length, this.textarea.value.length);
 	}
 }

@@ -298,7 +298,7 @@ function registerIpc(): void {
 		}
 	});
 	ipcMain.handle(IPC.invoke.setDefaultPermissionMode, async (_e, mode: PermissionMode) => {
-		if (mode === "bypass" || mode === "acceptEdits" || mode === "plan") {
+		if (mode === "bypass" || mode === "acceptEdits" || mode === "auto" || mode === "plan") {
 			settings.defaultPermissionMode = mode;
 			await settings.save();
 		}

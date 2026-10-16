@@ -90,6 +90,10 @@ export function buildApplicationMenu(
 			{ label: "Toggle File Tree", accelerator: "CmdOrCtrl+Alt+B", click: () => send({ action: "toggle-filetree" }) },
 				{ label: "Reload History", accelerator: "CmdOrCtrl+R", click: () => send({ action: "reload-history" }) },
 				{ label: "Edit Draft in External Editor", accelerator: "CmdOrCtrl+Alt+E", click: () => send({ action: "edit-externally" }) },
+				// ⌘⌥C jumps the caret into the chat box from anywhere in the window
+				// (chat list, panels, menus). No-op while no tab is open — the
+				// composer textarea is disabled in that state.
+				{ label: "Focus Chat Box", accelerator: "CmdOrCtrl+Alt+C", click: () => send({ action: "focus-composer" }) },
 				{ type: "separator" },
 				{ role: "resetZoom" },
 				{ role: "zoomIn" },

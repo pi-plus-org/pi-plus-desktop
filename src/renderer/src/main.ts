@@ -446,6 +446,9 @@ function init(): void {
 			case "reload-history":
 				void sidebarRef?.refresh();
 				break;
+			case "focus-composer":
+				composerRef?.focus();
+				break;
 		}
 	});
 

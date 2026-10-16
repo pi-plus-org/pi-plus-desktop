@@ -28,7 +28,7 @@ const sdk = await import("pi-plus-sdk");
 const { getAgentDir, readPiPlusSettings, updatePiPlusSettings } = sdk;
 
 const THEME_MODES: ThemeMode[] = ["system", "light", "dark"];
-const PERMISSION_MODES: PermissionMode[] = ["bypass", "acceptEdits", "plan"];
+const PERMISSION_MODES: PermissionMode[] = ["bypass", "acceptEdits", "auto", "plan"];
 
 const DEFAULT_PACKAGE_TOOLS: PackageToolsSettingsDTO = {
 	npm: { mode: "auto", path: "" },
