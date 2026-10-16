@@ -586,6 +586,11 @@ body {
 	min-height: 0;
 	overflow-y: auto;
 	position: relative;
+	/* The app fully owns the chat scroll position (stick-to-bottom pinning,
+	   per-tab restore offsets, the sticky jump-to-end bubble); Chrome's scroll
+	   anchoring nudges programmatic scrollTop across tab-container visibility
+	   flips, so it must stay off here. */
+	overflow-anchor: none;
 	/* Stop at the edges: no scroll chaining to the (non-scrollable) page or
 	   the history list. */
 	overscroll-behavior: contain;
@@ -598,6 +603,65 @@ body {
 }
 
 .chat-hidden {
+	display: none;
+}
+
+/* Pinned "jump-to-end" bubble — an accent-filled FAB so it reads as an
+   action, not chrome. Last child of the scrolling #chat with sticky-bottom
+   (the pattern only pins while the element's natural flow slot sits below
+   the viewport, hence the last-child placement ChatView keeps): it rides
+   14px above the pane's bottom edge at every scroll position, while the
+   negative margin cancels its flow space so the messages never shift.
+   Hidden whenever the view already sits at the transcript end
+   (ChatView.updateJumpEnd) — it only exists to get you back there. */
+.chat-jump-end {
+	position: sticky;
+	bottom: 14px;
+	z-index: 5;
+	box-sizing: border-box;
+	width: 36px;
+	height: 36px;
+	margin: 0 12px -36px auto;
+	display: grid;
+	place-items: center;
+	border: none;
+	border-radius: 50%;
+	background: var(--accent);
+	color: #fff;
+	cursor: pointer;
+	box-shadow:
+		0 0 0 1px rgba(255, 255, 255, 0.16),
+		0 3px 10px rgba(0, 0, 0, 0.5),
+		0 0 14px rgba(79, 142, 247, 0.45);
+	transition:
+		background 0.12s ease,
+		box-shadow 0.12s ease,
+		transform 0.12s ease;
+}
+
+.chat-jump-end svg {
+	display: block;
+}
+
+.chat-jump-end:hover {
+	background: #6ba1ff;
+	transform: scale(1.08);
+	box-shadow:
+		0 0 0 1px rgba(255, 255, 255, 0.24),
+		0 5px 14px rgba(0, 0, 0, 0.55),
+		0 0 18px rgba(79, 142, 247, 0.65);
+}
+
+.chat-jump-end:active {
+	transform: scale(0.95);
+}
+
+.chat-jump-end:focus-visible {
+	outline: 2px solid var(--text);
+	outline-offset: 2px;
+}
+
+.chat-jump-end[hidden] {
 	display: none;
 }
 
@@ -907,6 +971,13 @@ body {
 	word-break: break-word;
 	max-height: 240px;
 	overflow-y: auto;
+}
+
+/* The invoked command (bash-style tools render args as the bare command via
+   session-sanitize's previewArgs): accent-tinted like the "!" card header so
+   it reads as “what ran”, with the dimmer .tool-result line below as output. */
+.tool-args {
+	color: var(--accent);
 }
 
 .tool-result {

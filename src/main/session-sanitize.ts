@@ -37,6 +37,48 @@ function preview(value: unknown): string {
 	return truncate(text, TOOL_PREVIEW_LIMIT);
 }
 
+/**
+ * Tool args whose payload is essentially one shell command (bash and friends):
+ * show the command itself instead of the JSON envelope, so the tool card
+ * reads like the composer "!" block rather than `{"command":"…","timeout":…}`.
+ */
+function previewArgs(value: unknown): string {
+	if (value && typeof value === "object" && !Array.isArray(value)) {
+		const args = value as Record<string, unknown>;
+		if (typeof args.command === "string" && args.command.trim() !== "") {
+			const timeout = typeof args.timeout === "number" ? `  [timeout ${args.timeout}s]` : "";
+			return truncate(args.command + timeout, TOOL_PREVIEW_LIMIT);
+		}
+	}
+	return preview(value);
+}
+
+/**
+ * Collapse a tool result envelope ({content:[{type:"text",…}], details, …})
+ * to its human-readable text. Raw JSON.stringify here duplicated the output
+ * (content + structuredContent) and buried it in braces.
+ */
+function previewResult(value: unknown): string {
+	if (value && typeof value === "object" && !Array.isArray(value)) {
+		const content = (value as Record<string, unknown>).content;
+		if (Array.isArray(content)) {
+			const text = content
+				.map((block) => {
+					const b = block as Record<string, unknown> | undefined;
+					if (b?.type === "text" && typeof b.text === "string") return b.text;
+					if (b?.type === "image") return "[image]";
+					return "";
+				})
+				.filter(Boolean)
+				.join("\n");
+			// An empty text result is genuinely empty output — render nothing
+			// rather than falling back to the JSON envelope.
+			return truncate(text, TOOL_PREVIEW_LIMIT);
+		}
+	}
+	return preview(value);
+}
+
 function toContentBlockDTO(block: unknown): ContentBlockDTO {
 	const b = block as Record<string, unknown>;
 	switch (b?.type) {
@@ -175,21 +217,21 @@ export function sanitizeEvent(event: Record<string, unknown>): SanitizedEvent | 
 				type: "tool_execution_start",
 				toolCallId: String(event.toolCallId ?? ""),
 				toolName: String(event.toolName ?? "tool"),
-				argsPreview: preview(event.args),
+				argsPreview: previewArgs(event.args),
 			};
 
 		case "tool_execution_update":
 			return {
 				type: "tool_execution_update",
 				toolCallId: String(event.toolCallId ?? ""),
-				partialResultPreview: preview(event.partialResult),
+				partialResultPreview: previewResult(event.partialResult),
 			};
 
 		case "tool_execution_end":
 			return {
 				type: "tool_execution_end",
 				toolCallId: String(event.toolCallId ?? ""),
-				resultPreview: preview(event.result),
+				resultPreview: previewResult(event.result),
 				isError: event.isError === true,
 			};
 

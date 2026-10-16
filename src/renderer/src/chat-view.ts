@@ -36,7 +36,7 @@ function renderToolRow(tab: TabState, toolCallId: string, fallbackName: string):
 
 	const body = el("div", "tool-body");
 	const args = tool?.argsPreview ?? "";
-	if (args) body.append(el("pre", "tool-pre", args));
+	if (args) body.append(el("pre", "tool-pre tool-args", args));
 	if (tool?.resultPreview) body.append(el("pre", "tool-pre tool-result", tool.resultPreview));
 	if (body.childElementCount > 0) {
 		header.classList.add("tool-toggle");
@@ -315,6 +315,23 @@ export class ChatView {
 	 * comes when the incoming message finalizes.
 	 */
 	private thinkingSlots = new Map<string, ThinkingSlot>();
+	/** The tab whose container currently owns the shared #chat scroll offset. */
+	private shownTabId?: string;
+	/**
+	 * Per-tab pane scroll offset parked when leaving a tab. All tab containers
+	 * share the single scrolling #chat pane, so its scrollTop always belongs to
+	 * the *leaving* tab's content height: without this memory, switching back
+	 * lands at the other tab's offset, which sits in the middle of a taller
+	 * transcript. `stick` records that the tab was at its bottom when parked,
+	 * so re-entering follows new content instead of restoring a stale offset.
+	 */
+	private scrollMemory = new Map<string, { top: number; stick: boolean }>();
+	/**
+	 * Pinned "jump to end" bubble, floated over the bottom-right corner of the
+	 * scroll pane (first child of #chat, sticky-bottom) while the active tab is
+	 * scrolled up. Clicking it parks the tab at its transcript end.
+	 */
+	private jumpEndBtn: HTMLButtonElement;
 
 	constructor(root: HTMLElement) {
 		this.root = root;
@@ -334,6 +351,34 @@ export class ChatView {
 				if (error) notify(`Could not open '${url}': ${error}`, "error");
 			});
 		});
+		// The jump-to-end bubble must ride above the scrolling content. It is a
+		// sticky-bottom element, and that pattern only pins while the element's
+		// natural flow slot sits below the viewport — so it must stay the LAST
+		// child of #chat (containerFor re-appends it after each new container).
+		this.jumpEndBtn = el("button", "chat-jump-end") as HTMLButtonElement;
+		this.jumpEndBtn.type = "button";
+		this.jumpEndBtn.title = "Jump to end of messages";
+		// Inline chevron beats the "↓" glyph: fixed stroke weight, crisp at
+		// small sizes, and it inherits the button's text color.
+		this.jumpEndBtn.innerHTML =
+			'<svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 2.5v8.2M4 7.5 8 11.5l4-4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+		this.jumpEndBtn.addEventListener("click", () => {
+			const tab = store.active;
+			if (tab) this.scrollToEnd(tab, true);
+			this.updateJumpEnd();
+		});
+		root.append(this.jumpEndBtn);
+		// Manual wheel/scrollbar moves change the distance-to-end without any
+		// render running, so visibility also follows the pane's own scroll.
+		root.addEventListener("scroll", () => this.updateJumpEnd(), { passive: true });
+		this.updateJumpEnd();
+	}
+
+	/** Show the jump-to-end bubble only while the active tab is scrolled up. */
+	private updateJumpEnd(): void {
+		const pane = this.root;
+		const farFromEnd = pane.scrollHeight - pane.scrollTop - pane.clientHeight >= 120;
+		this.jumpEndBtn.hidden = !store.active || !farFromEnd;
 	}
 
 	containerFor(tab: TabState): HTMLElement {
@@ -343,6 +388,8 @@ export class ChatView {
 			node.dataset.tabId = tab.tabId;
 			this.containers.set(tab.tabId, node);
 			this.root.append(node);
+			// Keep the sticky jump-to-end bubble the last child of the pane.
+			this.root.append(this.jumpEndBtn);
 		}
 		return node;
 	}
@@ -460,21 +507,52 @@ export class ChatView {
 		renderAssistantBlocks(tab, blocks, body, thinkingIndex >= 0 ? this.resolveThinking(tab.tabId, blocks, thinkingIndex) : undefined);
 		this.streamNode.replaceChildren(body);
 		this.scrollToEnd(tab, false);
+		this.updateJumpEnd();
 	}
 
 	removeTab(tabId: string): void {
 		this.containers.get(tabId)?.remove();
 		this.containers.delete(tabId);
 		this.thinkingSlots.delete(tabId);
+		this.scrollMemory.delete(tabId);
+		if (this.shownTabId === tabId) this.shownTabId = undefined;
 		if (this.streamNode && !this.streamNode.isConnected) this.streamNode = null;
+		this.updateJumpEnd();
 	}
 
 	showTab(tabId: string): void {
+		const pane = this.root;
+		const switched = this.shownTabId !== tabId;
+		// Park the leaving tab's scroll offset *before* the visibility flip
+		// changes the layout (the hidden container stops contributing height).
+		if (switched && this.shownTabId && this.containers.has(this.shownTabId)) {
+			const stick = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 120;
+			this.scrollMemory.set(this.shownTabId, { top: pane.scrollTop, stick });
+		}
+		this.shownTabId = tabId;
 		for (const [id, node] of this.containers) {
 			node.classList.toggle("chat-hidden", id !== tabId);
 		}
+		if (!switched) {
+			this.updateJumpEnd();
+			return; // re-showing the same tab must not disturb its scroll
+		}
 		const tab = store.tabs.get(tabId);
-		if (tab) this.scrollToEnd(tab, false);
+		if (!tab) {
+			this.updateJumpEnd();
+			return;
+		}
+		const saved = this.scrollMemory.get(tabId);
+		if (saved && !saved.stick) {
+			// The user was reading mid-transcript: put them back there (the
+			// bubble may need to appear for the restored mid-history position).
+			pane.scrollTop = saved.top;
+		} else {
+			// First visit or bottom-pinned: end of this tab's own history, never
+			// the offset inherited from the other tab's content height.
+			this.scrollToEnd(tab, true);
+		}
+		this.updateJumpEnd();
 	}
 
 	private scrollToEnd(tab: TabState, force = true): void {
@@ -485,6 +563,7 @@ export class ChatView {
 		if (!pane) return;
 		const nearBottom = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 120;
 		if (force || nearBottom) pane.scrollTop = pane.scrollHeight;
+		this.updateJumpEnd();
 	}
 }
 
