@@ -203,8 +203,8 @@ export class Composer {
 		this.dialogs = dialogs;
 		this.textarea = document.createElement("textarea");
 		this.textarea.className = "composer-input";
-		this.textarea.placeholder = "Message pi… (Enter to send, Shift+Enter for newline)";
-		this.textarea.title = "Enter to send · Shift+Enter for newline · ↑/↓ recall your earlier prompts · ⌥⌘C to jump here";
+		this.textarea.placeholder = "Message pi… (Enter to send, Shift+Enter for newline, ! runs a command)";
+		this.textarea.title = "Enter to send · Shift+Enter for newline · ↑/↓ recall your earlier prompts · ! runs a shell command (Esc cancels it) · ⌥⌘C to jump here";
 		// Fixed 3-line box; overflow scrolls inside the textarea (no autosize).
 		this.textarea.rows = 3;
 
@@ -253,6 +253,11 @@ export class Composer {
 			if (e.key === "Escape" && store.active?.streaming) {
 				e.preventDefault();
 				void window.pi.abort(store.activeTabId);
+				return;
+			}
+			if (e.key === "Escape" && store.activeTabId && store.hasRunningBash(store.activeTabId)) {
+				e.preventDefault();
+				void window.pi.abortBash(store.activeTabId).catch(() => {});
 				return;
 			}
 			if (e.key === "Enter" && !e.shiftKey) {
@@ -1284,6 +1289,28 @@ export class Composer {
 			void this.runCompact(rest || undefined);
 			return;
 		}
+		// "!" bash mode (TUI parity): run the draft as a shell command through the
+		// SDK executor — bash on macOS/Linux, cmd.exe on Windows — instead of a
+		// model prompt. "!!" also runs it but keeps it out of the model context.
+		if (/^!!?(?=\S)/.test(text)) {
+			const excludeFromContext = text.startsWith("!!");
+			const command = text.slice(excludeFromContext ? 2 : 1).trim();
+			if (!command) return;
+			if (this.attachments.length > 0 || this.folderPaths.size > 0) {
+				this.dialogs.notify("Remove the attachments first to run a shell command (!)", "error");
+				return;
+			}
+			if (store.hasRunningBash(store.activeTabId)) {
+				this.dialogs.notify("A command is already running — Esc cancels it", "error");
+				return;
+			}
+			this.textarea.value = "";
+			this.endHistoryWalk();
+			this.closeAtMenu();
+			this.closeSlashMenu();
+			void this.runBash(store.activeTabId, command, excludeFromContext);
+			return;
+		}
 		const attachments = this.attachments;
 		const mode = store.active?.streaming ? this.sendMode : undefined;
 		this.textarea.value = "";
@@ -1294,6 +1321,23 @@ export class Composer {
 		this.closeSlashMenu();
 		this.renderAttachments();
 		this.onSend(text, attachments, mode);
+	}
+
+	/**
+	 * Run a composer "!" command: open the live transcript block, hand the run
+	 * to the session host (output streams back as bash_execution_update events
+	 * on the store), settle the block from the invoke result. The SDK records
+	 * the command + output into the transcript itself (deferred while streaming).
+	 */
+	private async runBash(tabId: string, command: string, excludeFromContext: boolean): Promise<void> {
+		const requestId = crypto.randomUUID();
+		store.beginBash(tabId, requestId, command, excludeFromContext);
+		try {
+			const result = await window.pi.runBash(tabId, requestId, command, excludeFromContext);
+			store.resolveBash(tabId, requestId, result);
+		} catch (err) {
+			store.resolveBash(tabId, requestId, { error: String((err as Error).message ?? err) });
+		}
 	}
 
 	/** Reflect the active tab's state (streaming -> Stop, else Send). */

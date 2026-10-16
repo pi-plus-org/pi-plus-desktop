@@ -28,7 +28,7 @@ export type ContentBlockDTO =
 	| { type: "image"; placeholder: true };
 
 export interface ChatMessageDTO {
-	role: "system" | "user" | "assistant" | "toolResult" | "custom";
+	role: "system" | "user" | "assistant" | "toolResult" | "custom" | "bashExecution";
 	content: string | ContentBlockDTO[];
 	/** assistant/toolResult/system */
 	provider?: string;
@@ -42,6 +42,15 @@ export interface ChatMessageDTO {
 	diff?: string;
 	customType?: string;
 	display?: boolean;
+	/** bashExecution (composer "!" mode): the command, captured output, and the
+	 *  executor's flags. `excludeFromContext` marks "!!" runs (transcript-only). */
+	command?: string;
+	output?: string;
+	exitCode?: number | null;
+	cancelled?: boolean;
+	truncated?: boolean;
+	fullOutputPath?: string;
+	excludeFromContext?: boolean;
 	timestamp?: number;
 	usage?: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number; costTotal: number };
 }
@@ -133,6 +142,18 @@ export interface ForkTargetDTO {
 export interface QueueDTO {
 	steering: string[];
 	followUp: string[];
+}
+
+/** Outcome of a composer "!" bash run (session-host.runBash). Live output is
+ *  streamed via bash_execution_update events; this is the final record. */
+export interface BashResultDTO {
+	command: string;
+	/** Captured stdout+stderr (truncated by the executor for huge outputs). */
+	output: string;
+	exitCode: number | null;
+	cancelled: boolean;
+	truncated: boolean;
+	fullOutputPath?: string;
 }
 
 /**
@@ -298,6 +319,9 @@ export type SanitizedEvent =
 			estimatedTokensAfter?: number;
 	  }
 	| { type: "queue_update"; steering: string[]; followUp: string[] }
+	/** Composer "!" bash mode: streamed stdout/stderr chunk of a running
+	 *  command, keyed by the renderer-minted requestId. */
+	| { type: "bash_execution_update"; id: string; delta: string }
 	| { type: "session_info_changed"; name?: string }
 	| { type: "thinking_level_changed"; level: string }
 	| { type: "auto_retry_start"; attempt: number; maxAttempts: number; errorMessage: string }
@@ -425,6 +449,8 @@ export const IPC = {
 		createTab: "session:createTab",
 		ensureSession: "session:ensure",
 		prompt: "session:prompt",
+		runBash: "session:runBash",
+		abortBash: "session:abortBash",
 		abort: "session:abort",
 		closeTab: "session:closeTab",
 		setTabProfile: "session:setTabProfile",
@@ -518,6 +544,13 @@ export interface PiApi {
 	 *  (after any compaction retry), with the disposition + expanded queued text. */
 	prompt(tabId: string, text: string, attachments?: string[], mode?: "steer" | "followUp"): Promise<PromptResultDTO>;
 	abort(tabId: string): Promise<void>;
+	/** Composer "!" mode: run a shell command on the tab's session (bash on
+	 *  macOS/Linux, cmd.exe on Windows). Output streams via the session-event
+	 *  channel keyed by `requestId`; resolves with the final result once the
+	 *  command exits (the SDK also records it into the transcript). */
+	runBash(tabId: string, requestId: string, command: string, excludeFromContext: boolean): Promise<BashResultDTO>;
+	/** Cancel the tab's running bash command(s). */
+	abortBash(tabId: string): Promise<void>;
 	closeTab(tabId: string): Promise<void>;
 	/** Switch the tab's profile: disposes the runtime and starts a fresh session
 	 *  under the new profile's agent dir; returns that session's snapshot. */

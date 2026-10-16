@@ -80,6 +80,17 @@ export function messageToDTO(message: AnyAgentMessage): ChatMessageDTO {
 			dto.diff = details.diff.length > TOOL_DIFF_LIMIT ? `${details.diff.slice(0, TOOL_DIFF_LIMIT)}\n… [diff truncated]` : details.diff;
 		}
 	}
+	// "!" bash-mode record: the executor's fields ride beside the role.
+	if (dto.role === "bashExecution") {
+		dto.command = typeof m.command === "string" ? m.command : "";
+		dto.output = typeof m.output === "string" ? m.output : "";
+		dto.exitCode = typeof m.exitCode === "number" ? m.exitCode : null;
+		dto.cancelled = m.cancelled === true;
+		dto.truncated = m.truncated === true;
+		if (typeof m.fullOutputPath === "string") dto.fullOutputPath = m.fullOutputPath;
+		dto.excludeFromContext = m.excludeFromContext === true;
+		dto.content = "";
+	}
 	const usage = m.usage as Record<string, unknown> | undefined;
 	if (usage && dto.role === "assistant") {
 		const cost = usage.cost as Record<string, unknown> | undefined;

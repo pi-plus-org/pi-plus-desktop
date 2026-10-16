@@ -122,6 +122,59 @@ function renderCompactionItem(text: string): HTMLElement {
 	return el("div", "msg msg-compaction", text);
 }
 
+/**
+ * Composer "!" bash block: a terminal-style card — command header, streamed
+ * output body, status footer. macOS/Linux run through the SDK's shell
+ * (bash/zsh); Windows through cmd.exe — the executor owns that choice.
+ */
+function renderBashItem(tab: TabState, item: Extract<ChatItem, { kind: "bash" }>): HTMLElement {
+	const block = el("div", `bash-block${item.running ? " bash-running" : ""}`);
+
+	const header = el("div", "bash-header");
+	header.append(el("span", "bash-prompt", item.excludeFromContext ? "!!" : "!"));
+	header.append(el("span", "bash-command", item.command));
+	if (item.excludeFromContext) {
+		header.append(el("span", "bash-flag", "· not in context"));
+	}
+	if (item.running) {
+		header.append(el("span", "bash-hint", "running…"));
+		const stop = el("button", "bash-stop", "✕") as HTMLButtonElement;
+		stop.title = "Cancel this command";
+		stop.addEventListener("click", () => {
+			stop.disabled = true;
+			void window.pi.abortBash(tab.tabId).catch(() => {
+				/* abort of a finished command is a no-op */
+			});
+		});
+		header.append(stop);
+	}
+	block.append(header);
+
+	if (item.output) {
+		const pre = el("pre", "bash-output");
+		pre.textContent = item.output;
+		// Streamed output stays pinned to the tail while the command runs. The
+		// node is rebuilt per chunk, so scroll after insertion (layout exists only then).
+		if (item.running) requestAnimationFrame(() => (pre.scrollTop = pre.scrollHeight));
+		block.append(pre);
+	}
+
+	if (item.running) {
+		block.append(el("div", "bash-footer", "“!” — shell command; Esc or ✕ to cancel"));
+	} else if (item.error) {
+		block.append(el("div", "bash-footer bash-error", item.error));
+	} else {
+		const parts: string[] = [];
+		if (item.cancelled) parts.push("cancelled");
+		else parts.push(item.exitCode === 0 ? "exit 0" : `exit ${item.exitCode ?? "?"}`);
+		if (item.truncated) parts.push(`truncated${item.fullOutputPath ? ` — full output: ${item.fullOutputPath}` : ""}`);
+		const footer = el("div", `bash-footer${item.exitCode === 0 && !item.cancelled ? "" : " bash-error"}`);
+		footer.textContent = parts.join(" · ");
+		block.append(footer);
+	}
+	return block;
+}
+
 // Per-message token/cost display lives in the composer status strip (see
 // Composer.renderUsage) — the chat stays clean of usage noise.
 
@@ -370,6 +423,8 @@ export class ChatView {
 				return renderAssistantItem(tab, item.message, thinking);
 			case "toolResult":
 				return renderToolResultItem(tab, item.message);
+			case "bash":
+				return renderBashItem(tab, item);
 			case "compaction":
 				return renderCompactionItem(item.text);
 			case "notice":

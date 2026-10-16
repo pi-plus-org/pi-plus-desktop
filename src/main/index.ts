@@ -243,6 +243,8 @@ function registerIpc(): void {
 	ipcMain.handle(IPC.invoke.ensureSession, (_e, tabId: string, resumePath?: string) => sessionHost.ensureSession(tabId, resumePath));
 	ipcMain.handle(IPC.invoke.prompt, (_e, tabId: string, text: string, attachments?: string[], mode?: "steer" | "followUp") => sessionHost.prompt(tabId, text, attachments, mode));
 	ipcMain.handle(IPC.invoke.abort, (_e, tabId: string) => sessionHost.abort(tabId));
+	ipcMain.handle(IPC.invoke.runBash, (_e, tabId: string, requestId: string, command: string, excludeFromContext: boolean) => sessionHost.runBash(tabId, requestId, command, excludeFromContext));
+	ipcMain.handle(IPC.invoke.abortBash, (_e, tabId: string) => sessionHost.abortBash(tabId));
 	ipcMain.handle(IPC.invoke.closeTab, async (_e, tabId: string) => sessionHost.closeTab(tabId));
 	ipcMain.handle(IPC.invoke.setTabProfile, (_e, tabId: string, profileName: string | null) => sessionHost.setProfile(tabId, profileName));
 	ipcMain.handle(IPC.invoke.listSessions, () => sessionHost.listSessions());

@@ -5,6 +5,7 @@
 
 import { parseComposedPrompt } from "../../shared/attachments.ts";
 import type {
+	BashResultDTO,
 	ChatMessageDTO,
 	ContentBlockDTO,
 	EnsureResult,
@@ -55,6 +56,23 @@ export type ChatItem =
 	  }
 	| { kind: "assistant"; message: ChatMessageDTO }
 	| { kind: "toolResult"; message: ChatMessageDTO }
+	/** Composer "!" bash run: command executed by the SDK shell (bash on unix,
+	 *  cmd.exe on Windows). `running` until the invoke resolves; output streams
+	 *  in via bash_execution_update deltas; `error` = IPC/startup failure. */
+	| {
+			kind: "bash";
+			requestId: string;
+			command: string;
+			output: string;
+			running: boolean;
+			excludeFromContext?: boolean;
+			exitCode?: number | null;
+			cancelled?: boolean;
+			truncated?: boolean;
+			fullOutputPath?: string;
+			error?: string;
+			ts?: number;
+	  }
 	| { kind: "compaction"; text: string }
 	| { kind: "notice"; text: string };
 
@@ -112,6 +130,14 @@ export function formatTokens(count: number): string {
 	return String(count);
 }
 
+/** Renderer-side cap on live bash output: keep the tail (the freshest part);
+ *  the SDK truncates the recorded transcript copy independently. */
+const BASH_OUTPUT_CAP = 64 * 1024;
+function capBashOutput(text: string): string {
+	if (text.length <= BASH_OUTPUT_CAP) return text;
+	return `…[${text.length - BASH_OUTPUT_CAP} bytes above dropped]…\n` + text.slice(-BASH_OUTPUT_CAP);
+}
+
 function textOfContent(content: ChatMessageDTO["content"]): string {
 	if (typeof content === "string") return content;
 	return content
@@ -140,6 +166,24 @@ export function messageToItems(message: ChatMessageDTO): ChatItem[] {
 	}
 	if (message.role === "assistant") return [{ kind: "assistant", message }];
 	if (message.role === "toolResult") return [{ kind: "toolResult", message }];
+	if (message.role === "bashExecution") {
+		// Resumed "!" run: replay the recorded block, already finished.
+		return [
+			{
+				kind: "bash",
+				requestId: `msg:${message.timestamp ?? 0}`,
+				command: message.command ?? "",
+				output: message.output ?? "",
+				running: false,
+				exitCode: message.exitCode ?? null,
+				cancelled: message.cancelled,
+				truncated: message.truncated,
+				...(message.fullOutputPath !== undefined ? { fullOutputPath: message.fullOutputPath } : {}),
+				excludeFromContext: message.excludeFromContext,
+				ts: message.timestamp,
+			},
+		];
+	}
 	if (message.role === "custom" && message.display !== false) {
 		return [{ kind: "notice", text: typeof message.content === "string" ? message.content : textOfContent(message.content) }];
 	}
@@ -360,6 +404,39 @@ class Store {
 		this.emit({ type: "chat", tabId });
 	}
 
+	/** Composer "!" mode: open a live bash block for a run (before invoking). */
+	beginBash(tabId: string, requestId: string, command: string, excludeFromContext: boolean): void {
+		const tab = this.tabs.get(tabId);
+		if (!tab) return;
+		tab.items.push({ kind: "bash", requestId, command, output: "", running: true, excludeFromContext, ts: Date.now() });
+		this.emit({ type: "chat", tabId });
+	}
+
+	/** Settle a bash block once the runBash invoke resolves (result or error). */
+	resolveBash(tabId: string, requestId: string, result: BashResultDTO | { error: string }): void {
+		const tab = this.tabs.get(tabId);
+		if (!tab) return;
+		const item = tab.items.find((i) => i.kind === "bash" && i.requestId === requestId);
+		if (!item || item.kind !== "bash" || !item.running) return;
+		item.running = false;
+		if ("error" in result) {
+			item.error = result.error;
+		} else {
+			item.output = capBashOutput(result.output);
+			item.exitCode = result.exitCode;
+			item.cancelled = result.cancelled;
+			item.truncated = result.truncated;
+			if (result.fullOutputPath !== undefined) item.fullOutputPath = result.fullOutputPath;
+		}
+		this.emit({ type: "chat", tabId });
+	}
+
+	/** True while a bash block in this tab is still executing. */
+	hasRunningBash(tabId: string): boolean {
+		const tab = this.tabs.get(tabId);
+		return !!tab?.items.some((i) => i.kind === "bash" && i.running);
+	}
+
 	applyStatus(tabId: string, isStreaming: boolean): void {
 		const tab = this.tabs.get(tabId);
 		if (!tab || tab.streaming === isStreaming) return;
@@ -376,6 +453,19 @@ class Store {
 		const tab = this.tabs.get(tabId);
 		if (!tab) return;
 		switch (event.type) {
+			case "bash_execution_update": {
+				// Live "!" run chunk: append to the block the renderer minted this
+				// requestId for (the SDK echoes executeBash's `id` option).
+				for (const item of tab.items) {
+					if (item.kind === "bash" && item.requestId === event.id && item.running) {
+						item.output = capBashOutput(item.output + event.delta);
+						this.emit({ type: "chat", tabId });
+						break;
+					}
+				}
+				break;
+			}
+
 			case "message_start":
 				tab.streamBlocks.clear();
 				tab.streamingToolCalls.clear();

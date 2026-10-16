@@ -20,6 +20,7 @@ import {
 	IPC,
 	type CommandDTO,
 	type PermissionMode,
+	type BashResultDTO,
 	type CompactResultDTO,
 	type CompactionPatch,
 	type CompactionSettingsDTO,
@@ -536,6 +537,34 @@ export class SessionHost {
 	async abort(tabId: string): Promise<void> {
 		const tab = this.getTab(tabId);
 		if (tab.runtime) await tab.runtime.session.abort();
+	}
+
+	/** Composer "!" bash mode (TUI parity): run the command through the SDK
+	 *  executor — bash on macOS/Linux, cmd.exe on Windows; that choice lives in
+	 *  the SDK's shell resolver, not here. `requestId` is echoed in the
+	 *  bash_execution_update chunk events the session emits. executeBash
+	 *  records a bashExecution transcript message itself (deferred while the
+	 *  agent streams), so the model sees the command + output on the next
+	 *  prompt unless `excludeFromContext` ("!!") says otherwise. */
+	async runBash(tabId: string, requestId: string, command: string, excludeFromContext: boolean): Promise<BashResultDTO> {
+		const tab = this.getTab(tabId);
+		await this.ensureSession(tabId);
+		const result = await this.sessionOf(tab).executeBash(command, undefined, { id: requestId, excludeFromContext });
+		this.refreshMeta(tab);
+		const dto: BashResultDTO = {
+			command,
+			output: result.output,
+			exitCode: result.exitCode ?? null,
+			cancelled: result.cancelled === true,
+			truncated: result.truncated === true,
+		};
+		if (typeof result.fullOutputPath === "string") dto.fullOutputPath = result.fullOutputPath;
+		return dto;
+	}
+
+	async abortBash(tabId: string): Promise<void> {
+		const tab = this.getTab(tabId);
+		if (tab.runtime) this.sessionOf(tab).abortBash();
 	}
 
 	async compact(tabId: string, customInstructions?: string): Promise<CompactResultDTO> {

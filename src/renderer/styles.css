@@ -743,6 +743,87 @@ body {
 	font-style: italic;
 }
 
+/* Composer "!" bash mode block (chat-view renderBashItem) */
+.bash-block {
+	margin: 4px 0 10px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--bg-sidebar);
+	overflow: hidden;
+}
+
+.bash-header {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 5px 10px;
+	border-bottom: 1px solid var(--border);
+	font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+	font-size: 12px;
+}
+
+.bash-prompt {
+	color: var(--accent);
+	font-weight: 600;
+}
+
+.bash-command {
+	color: var(--text);
+	white-space: pre-wrap;
+	word-break: break-all;
+	flex: 0 1 auto;
+}
+
+.bash-flag,
+.bash-hint {
+	color: var(--text-dim);
+	font-style: italic;
+	flex: 0 0 auto;
+}
+
+.bash-stop {
+	margin-left: auto;
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	background: transparent;
+	color: var(--text-dim);
+	font-size: 11px;
+	line-height: 1;
+	padding: 2px 6px;
+	cursor: pointer;
+}
+
+.bash-stop:hover {
+	color: var(--danger);
+	border-color: var(--danger);
+}
+
+.bash-output {
+	margin: 0;
+	padding: 8px 10px;
+	max-height: 320px;
+	overflow-y: auto;
+	white-space: pre-wrap;
+	word-break: break-word;
+	font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+	font-size: 12px;
+	line-height: 1.45;
+	color: var(--text);
+	background: var(--bg);
+}
+
+.bash-footer {
+	padding: 4px 10px;
+	border-top: 1px solid var(--border);
+	color: var(--text-dim);
+	font-size: 11px;
+	font-style: italic;
+}
+
+.bash-footer.bash-error {
+	color: var(--danger);
+}
+
 .thinking {
 	margin-bottom: 10px;
 	border: 1px solid var(--border);
