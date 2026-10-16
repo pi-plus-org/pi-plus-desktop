@@ -452,7 +452,11 @@ class Store {
 				if (event.aborted) {
 					tab.items.push({ kind: "notice", text: "Compaction aborted." });
 				} else if (event.errorMessage) {
-					tab.items.push({ kind: "notice", text: `Compaction failed: ${event.errorMessage}` });
+					// The SDK already prefixes "Compaction failed: " on the wire.
+					const reason = event.errorMessage.startsWith("Compaction failed: ")
+						? event.errorMessage.slice("Compaction failed: ".length)
+						: event.errorMessage;
+					tab.items.push({ kind: "notice", text: `Compaction failed: ${reason}` });
 				} else {
 					tab.items.push({ kind: "notice", text: `Context compacted${tokens}.` });
 				}

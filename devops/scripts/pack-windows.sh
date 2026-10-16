@@ -19,14 +19,20 @@
 # embedded cabinet, via win-wxs.mjs harvesting the staged tree + `wixl`.
 # Unsigned (like the old zip): SmartScreen shows "More info → Run anyway".
 #
-# Production pack: dependencies must carry registry specs (see pack-macos.sh)
-# — refuses to pack while package.json carries file: (symlinked) deps.
+# Production pack (registry-only package.json) → release/<AppName>-<version>-win-x64.msi.
+# Linked dependencies are allowed too: file: deps (a locally linked pi-plus-sdk)
+# make this a **dev pack** — the symlinks npm creates are materialized into real
+# copies of the local build (an MSI can only carry real files), and "-dev" is
+# appended to the package name. Note the dev MSI keeps the fixed UpgradeCode, so
+# installing it *does* replace/upgrade a production install of the same app on
+# Windows — the name suffix only tells the humans; use it for testing, not shipping.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 APP_NAME="${APP_NAME:-Pi+}"
 EXE_NAME="pi-plus" # keep the executable plus-free for shell safety
 VERSION="$(node -p "require('$ROOT/package.json').version")"
+DEV_SUFFIX="" # set to "-dev" when package.json carries file: deps
 MSI_VERSION="${VERSION%%[-+]*}" # semver prerelease/build tags are not MSI versions
 RELEASE_DIR="$ROOT/release"
 STAGE="$ROOT/dist/pack-win"
@@ -41,14 +47,15 @@ cd "$ROOT"
 
 echo "[pack-win] version $VERSION, app '$APP_NAME', electron $EV"
 
-# 0. Guards (fail fast before building anything): no file: deps allowed in a
-#    distributable pack; wixl must be installed; the MSI icon must exist and be
+# 0. Guards (fail fast before building anything): file: deps make this a dev
+#    pack (see header); wixl must be installed; the MSI icon must exist and be
 #    at least as new as its icon.png source.
 FILE_DEPS="$(node -p "const d=require('$ROOT/package.json').dependencies||{};Object.entries(d).filter(([,s])=>String(s).startsWith('file:')).map(([n])=>n).join(' ')")"
 if [ -n "$FILE_DEPS" ]; then
-	echo "[pack-win] refusing to pack: file: (symlinked) dependencies in package.json: $FILE_DEPS" >&2
-	echo "[pack-win] production packs need registry specs, e.g.: npm install --save pi-plus-sdk@^0.1.4" >&2
-	exit 1
+	DEV_SUFFIX="-dev"
+	APP_NAME="$APP_NAME$DEV_SUFFIX"
+	echo "[pack-win] DEV PACK: linked (file:) dependencies packaged: $FILE_DEPS"
+	echo "[pack-win]   local builds are copied into the payload; app name → '$APP_NAME'" >&2
 fi
 if ! command -v wixl >/dev/null 2>&1; then
 	echo "[pack-win] refusing to pack: wixl (msitools) not found; install it with: brew install msitools" >&2
@@ -125,13 +132,35 @@ echo "[pack-win] installing production dependencies for win32-x64 (npm ci --omit
 	cd "$APP_RES"
 	npm ci --omit=dev --no-audit --no-fund --loglevel=error --ignore-scripts --os=win32 --cpu=x64
 )
-# Backstop for the step-0 guard: any symlinked package in the payload would
-# dangle outside this package.
+# 4b. Dev pack: replace the symlinks npm created for the file: deps with real
+#     copies of the local builds. The links npm makes are relative to the payload
+#     dir — where the sibling source path does not exist, so they dangle (an MSI
+#     component would ship a broken file, and the step-5 symlink refusal is
+#     absolute). Materialize straight from the root package.json specs instead,
+#     dereferencing every link in the copy.
+if [ -n "$DEV_SUFFIX" ]; then
+	echo "[pack-win] materializing linked dependencies into the payload…"
+	node -e '
+const fs = require("fs"), path = require("path");
+const [appRes, rootPkg] = process.argv.slice(1);
+const deps = JSON.parse(fs.readFileSync(rootPkg, "utf8")).dependencies || {};
+for (const [name, spec] of Object.entries(deps)) {
+	if (!String(spec).startsWith("file:")) continue;
+	const src = path.resolve(path.dirname(rootPkg), spec.slice("file:".length));
+	if (!fs.existsSync(src)) { console.error("[pack-win] linked dep source missing: " + name + " -> " + src); process.exit(1); }
+	const dest = path.join(appRes, "node_modules", name);
+	fs.rmSync(dest, { recursive: true, force: true });
+	fs.cpSync(src, dest, { recursive: true, dereference: true });
+	console.log("[pack-win]   " + name + " <- " + src);
+}
+' "$APP_RES" "$ROOT/package.json"
+fi
+# Backstop: any symlinked package still in the payload would dangle outside this package.
 LINKS="$(find "$APP_RES/node_modules" -maxdepth 1 -type l ! -name .bin | head -5)"
 if [ -n "$LINKS" ]; then
 	echo "[pack-win] refusing to pack: symlinked packages in the app payload:" >&2
 	echo "$LINKS" | sed 's/^/[pack-win]   /' >&2
-	echo "[pack-win] distributable packs need real copies in node_modules, not links." >&2
+	echo "[pack-win] distributable packs need real copies in node_modules, not links (a dev pack materializes them in step 4b)." >&2
 	# exit 1
 fi
 # npm's --os filtering installs @esbuild/win32-x64 next to every nested esbuild
