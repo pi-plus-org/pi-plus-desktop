@@ -209,6 +209,9 @@ export class Sidebar {
 			"sidebar-item-meta",
 			`${relativeTime(item.modified)} · ${item.messageCount} msg`,
 		);
+		const cwdSpan = el("span", "sidebar-item-cwd", item.cwd.split(/[/\\]/).filter(Boolean).pop() || item.cwd);
+		cwdSpan.title = item.cwd;
+		meta.append(" · ", cwdSpan);
 		body.append(meta);
 		row.append(body);
 

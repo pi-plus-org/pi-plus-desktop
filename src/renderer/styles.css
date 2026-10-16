@@ -441,6 +441,13 @@ body {
 .sidebar-item-meta {
 	font-size: 11px;
 	color: var(--text-dim);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.sidebar-item-cwd {
+	font-style: italic;
 }
 
 /* Row of the session in the active tab: tinted selection + accent bar. */
