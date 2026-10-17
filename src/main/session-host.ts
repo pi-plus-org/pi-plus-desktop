@@ -67,7 +67,12 @@ type SessionManagerSurface = (typeof sdk)["SessionManager"] & {
 };
 const SessionManager = sdk.SessionManager as SessionManagerSurface;
 type SessionManagerInstance = ReturnType<SessionManagerSurface["open"]>;
-type PlusAgentSession = AgentSession & { getSlashCommands(): SlashCommandInfo[] };
+type PlusAgentSession = AgentSession & {
+	getSlashCommands(): SlashCommandInfo[];
+	/** Live "compaction or branch summary in flight" flag (upstream coding-agent
+	 *  getter; the bundled d.ts lags — same pattern as executeBash above). */
+	readonly isCompacting: boolean;
+};
 
 interface TabHandle {
 	tabId: string;
@@ -90,6 +95,9 @@ interface TabHandle {
 	/** Tool-permission mode holder shared with the pi-plus-permissions
 	 *  extension (the live truth for the gate; survives session replacement). */
 	permission: PermissionModeState;
+	/** Waiters parked by submitPrompt while the session compacts; released on
+	 *  `compaction_end` (and on rebind/teardown so a retry never strands). */
+	compactionWaiters: Array<() => void>;
 }
 
 const FORK_PREVIEW_LIMIT = 160;
@@ -164,6 +172,7 @@ export class SessionHost {
 			lastMetaJson: "",
 			lastMetaRefreshAt: 0,
 			permission,
+			compactionWaiters: [],
 		});
 		return { tabId, cwd, profileName, permissionMode: permission.mode };
 	}
@@ -237,6 +246,10 @@ export class SessionHost {
 				// Fires for the initial bind and after every session replacement
 				// (cd/clone/fork/switch): re-subscribe to the new live session.
 				onRebind: (session) => {
+					// A session replacement can land while a prompt is parked waiting for
+					// compaction: release the waiters so their retry re-reads the new
+					// live session (which is never mid-compaction) instead of timing out.
+					this.flushCompactionWaiters(tab);
 					tab.unsubscribe?.();
 					tab.unsubscribe = session.subscribe((event: AgentSessionEvent) => this.onSessionEvent(tab, event));
 					tab.lastStreaming = session.isStreaming;
@@ -407,10 +420,16 @@ export class SessionHost {
 			case "session_info_changed":
 			case "thinking_level_changed":
 			case "agent_settled":
-			case "compaction_end":
 			case "entry_appended":
 			case "message_start":
 			case "message_end":
+				this.refreshMeta(tab);
+				break;
+			case "compaction_end":
+				// The SDK clears its compaction flag *before* emitting this event, so
+				// releasing parked prompts here lets the retry pass the "compaction is
+				// in progress" guard synchronously.
+				this.flushCompactionWaiters(tab);
 				this.refreshMeta(tab);
 				break;
 			case "message_update": {
@@ -469,10 +488,38 @@ export class SessionHost {
 	 * losing user input to a timing race is worse than a brief delay. */
 	private static readonly promptRetryMs = 30_000;
 
+	/** Resolves when the tab's session is no longer compacting (immediately if
+	 *  it isn't). The SDK refuses `prompt()` outright while compaction is in
+	 *  flight — *before* any steer/follow-up enqueue — so a prompt sent during
+	 *  compaction must wait for `compaction_end` and re-submit with its
+	 *  original behavior rather than queueing through the rejection. A timeout
+	 *  backstop keeps a wedged compaction from parking the send forever. */
+	private waitForCompactionEnd(tab: TabHandle, timeoutMs: number): Promise<void> {
+		const session = tab.runtime?.session as PlusAgentSession | undefined;
+		if (!session?.isCompacting) return Promise.resolve();
+		return new Promise((resolve) => {
+			const finish = () => {
+				clearTimeout(timer);
+				const i = tab.compactionWaiters.indexOf(finish);
+				if (i >= 0) tab.compactionWaiters.splice(i, 1);
+				resolve();
+			};
+			const timer = setTimeout(finish, Math.max(0, timeoutMs));
+			tab.compactionWaiters.push(finish);
+		});
+	}
+
+	private flushCompactionWaiters(tab: TabHandle): void {
+		if (tab.compactionWaiters.length === 0) return;
+		for (const waiter of tab.compactionWaiters.splice(0)) waiter();
+	}
+
 	private async submitPrompt(tab: TabHandle, composed: string, behavior: "steer" | "followUp"): Promise<PromptResultDTO> {
-		const session = this.sessionOf(tab);
 		const deadline = Date.now() + SessionHost.promptRetryMs;
 		for (;;) {
+			// Re-read the live session every attempt: a session replacement during a
+			// compaction wait (cd/clone/fork/resume) makes the old handle dead.
+			const session = this.sessionOf(tab);
 			let disposition: PromptResultDTO["disposition"] | undefined;
 			const attempt = session.prompt(composed, {
 				streamingBehavior: behavior,
@@ -521,10 +568,17 @@ export class SessionHost {
 				// surfaces via queue_update. Keep the orphan rejection inert.
 				attempt.catch(() => {});
 				const message = error instanceof Error ? error.message : String(error);
-				const transient =
-					/compaction is in progress|different streamingBehavior/i.test(message) &&
-					session.isStreaming &&
-					Date.now() < deadline;
+				const inTime = Date.now() < deadline;
+				if (/compaction is in progress/i.test(message)) {
+					// Parked until compaction settles, then re-submitted with the same
+					// behavior — "steer" during a run still steers, "followUp" still
+					// queues — instead of dropping the user's input on a timing race.
+					console.error(`[session-host] prompt hit in-flight compaction, waiting: ${message}`);
+					if (!inTime) throw error;
+					await this.waitForCompactionEnd(tab, deadline - Date.now());
+					continue;
+				}
+				const transient = /different streamingBehavior/i.test(message) && session.isStreaming && inTime;
 				console.error(`[session-host] prompt rejected: ${message} (${transient ? "retrying" : "giving up"})`);
 				if (!transient) throw error;
 				await new Promise((resolve) => setTimeout(resolve, 500));
@@ -768,6 +822,7 @@ export class SessionHost {
 
 	/** Tear down a tab's runtime; safe against double-close / double-dispose. */
 	private async destroyTab(tab: TabHandle): Promise<void> {
+		this.flushCompactionWaiters(tab);
 		tab.unsubscribe?.();
 		tab.unsubscribe = null;
 		tab.taskUnsub?.();
