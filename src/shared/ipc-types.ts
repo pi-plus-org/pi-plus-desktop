@@ -27,6 +27,21 @@ export type ContentBlockDTO =
 	| { type: "toolCall"; id: string; name: string; arguments: unknown }
 	| { type: "image"; placeholder: true };
 
+/**
+ * Display payload for the draw_diagram tool: the layout-computed SVG (empty
+ * when the host has no SVG renderer), the box-drawing ASCII fallback, counts
+ * for the card header, and the standalone HTML file path when the tool was
+ * asked to write one.
+ */
+export interface DiagramCardDTO {
+	title?: string;
+	nodeCount: number;
+	edgeCount: number;
+	ascii: string;
+	svg?: string;
+	htmlPath?: string;
+}
+
 export interface ChatMessageDTO {
 	role: "system" | "user" | "assistant" | "toolResult" | "custom" | "bashExecution";
 	content: string | ContentBlockDTO[];
@@ -40,6 +55,10 @@ export interface ChatMessageDTO {
 	/** Display diff lifted from the edit tool result's `details.diff`; only set
 	 *  on toolResult messages whose tool produced one. */
 	diff?: string;
+	/** Diagram lifted from the draw_diagram tool result's `details` (spec +
+	 *  ASCII + optional htmlPath); the renderer shows a visual card instead of
+	 *  the JSON/ASCII blob. */
+	diagram?: DiagramCardDTO;
 	customType?: string;
 	display?: boolean;
 	/** bashExecution (composer "!" mode): the command, captured output, and the
@@ -304,7 +323,7 @@ export type SanitizedEvent =
 	| { type: "message_end"; message: ChatMessageDTO }
 	| { type: "tool_execution_start"; toolCallId: string; toolName: string; argsPreview: string }
 	| { type: "tool_execution_update"; toolCallId: string; partialResultPreview: string }
-	| { type: "tool_execution_end"; toolCallId: string; resultPreview: string; isError: boolean }
+	| { type: "tool_execution_end"; toolCallId: string; resultPreview: string; isError: boolean; diagram?: DiagramCardDTO }
 	| { type: "agent_start" }
 	| { type: "agent_end"; willRetry: boolean }
 	| { type: "agent_settled" }
@@ -505,6 +524,7 @@ export const IPC = {
 		saveAttachment: "attachment:save",
 		listDir: "fs:listDir",
 		revealPath: "shell:revealPath",
+		openPath: "shell:openPath",
 		openExternal: "shell:openExternal",
 		respondDialog: "dialog:respond",
 		respondAuthPrompt: "auth:respond",
@@ -666,6 +686,11 @@ export interface PiApi {
 	 * Resolves to "" on success, or the error message.
 	 */
 	revealPath(path: string): Promise<string>;
+	/**
+	 * Open an absolute path with the OS default application (a .html diagram
+	 * lands in the default browser). Resolves to "" on success, or the error.
+	 */
+	openPath(path: string): Promise<string>;
 	/**
 	 * Open a URL in a NEW tab of the OS default web browser (http/https only).
 	 * Resolves to "" on success, or the error message.

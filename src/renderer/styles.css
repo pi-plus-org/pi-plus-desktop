@@ -987,6 +987,80 @@ body {
 	color: var(--accent);
 }
 
+/* draw_diagram card (renderDiagramCard): visual SVG (white page from the SDK
+   renderer, so give it an opaque frame), ASCII fallback/fold, header counts,
+   and the Open-HTML button. Shared by the live tool row and replayed items. */
+.diagram-card {
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--bg);
+	padding: 8px;
+	max-width: 100%;
+}
+
+.diagram-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 6px;
+	font-size: 12px;
+}
+
+.diagram-title {
+	font-weight: 600;
+}
+
+.diagram-counts {
+	color: var(--text-dim);
+}
+
+.diagram-open {
+	margin-left: auto;
+	font: inherit;
+	font-size: 11px;
+	color: var(--accent);
+	background: none;
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	padding: 2px 8px;
+	cursor: pointer;
+}
+
+.diagram-open:hover {
+	background: var(--bg-hover);
+}
+
+.diagram-svg {
+	overflow: auto;
+	max-height: 420px;
+	background: #ffffff;
+	border-radius: 4px;
+}
+
+pre.diagram-svg {
+	margin: 0;
+	font-size: 12px;
+	line-height: 1.2;
+}
+
+.diagram-ascii-fold {
+	margin-top: 6px;
+	font-size: 11px;
+	color: var(--text-dim);
+}
+
+.diagram-ascii-fold summary {
+	cursor: pointer;
+}
+
+.diagram-ascii {
+	margin: 4px 0 0;
+	font-size: 12px;
+	line-height: 1.2;
+	white-space: pre;
+	overflow-x: auto;
+}
+
 .tool-result {
 	color: var(--text-dim);
 }

@@ -5,7 +5,7 @@
  * traffic ~two orders of magnitude smaller.
  */
 
-import type { ChatMessageDTO, ContentBlockDTO, SanitizedEvent, UpdateDTO } from "../shared/ipc-types.ts";
+import type { ChatMessageDTO, ContentBlockDTO, DiagramCardDTO, SanitizedEvent, UpdateDTO } from "../shared/ipc-types.ts";
 
 /**
  * Structural stand-in for the SDK's AgentMessage union (the type itself is not
@@ -16,7 +16,47 @@ type AnyAgentMessage = { role: string; content?: unknown; [key: string]: unknown
 
 const TOOL_PREVIEW_LIMIT = 4096;
 const TOOL_DIFF_LIMIT = 32768;
+const DIAGRAM_SVG_LIMIT = 131072;
 const SNAPSHOT_MESSAGE_LIMIT = 500;
+
+/**
+ * SVG renderer injected by session-host once the SDK is loaded (this module
+ * cannot statically import pi-plus-sdk — the bundler hoists it above the
+ * sdk-shim). Undefined until wired: diagram cards then ride with ASCII only.
+ */
+let diagramSvgRenderer: ((spec: unknown) => string) | undefined;
+export function setDiagramSvgRenderer(fn: (spec: never) => string): void {
+	diagramSvgRenderer = fn as (spec: unknown) => string;
+}
+
+/**
+ * Lift a draw_diagram result's `details` ({spec, ascii, htmlPath}) into a
+ * display card. The layout is recomputed to inline SVG so the chat shows a
+ * visual diagram; the ASCII stays as the fallback for when no renderer is
+ * wired or the spec fails to lay out (truncated/legacy transcripts).
+ */
+function diagramCardFromDetails(details: unknown): DiagramCardDTO | undefined {
+	if (!details || typeof details !== "object") return undefined;
+	const d = details as Record<string, unknown>;
+	if (typeof d.ascii !== "string" || !d.spec || typeof d.spec !== "object") return undefined;
+	const spec = d.spec as Record<string, unknown>;
+	if (!Array.isArray(spec.nodes)) return undefined;
+	const card: DiagramCardDTO = {
+		nodeCount: spec.nodes.length,
+		edgeCount: Array.isArray(spec.edges) ? spec.edges.length : 0,
+		ascii: truncate(d.ascii, TOOL_PREVIEW_LIMIT),
+	};
+	if (typeof spec.title === "string" && spec.title) card.title = spec.title;
+	if (typeof d.htmlPath === "string" && d.htmlPath) card.htmlPath = d.htmlPath;
+	if (diagramSvgRenderer) {
+		try {
+			card.svg = truncate(diagramSvgRenderer(spec), DIAGRAM_SVG_LIMIT);
+		} catch {
+			/* malformed spec — the card falls back to ASCII */
+		}
+	}
+	return card;
+}
 
 function truncate(text: string, limit: number): string {
 	if (text.length <= limit) return text;
@@ -121,6 +161,8 @@ export function messageToDTO(message: AnyAgentMessage): ChatMessageDTO {
 		if (typeof details?.diff === "string") {
 			dto.diff = details.diff.length > TOOL_DIFF_LIMIT ? `${details.diff.slice(0, TOOL_DIFF_LIMIT)}\n… [diff truncated]` : details.diff;
 		}
+		const diagram = diagramCardFromDetails(details);
+		if (diagram) dto.diagram = diagram;
 	}
 	// "!" bash-mode record: the executor's fields ride beside the role.
 	if (dto.role === "bashExecution") {
@@ -233,6 +275,7 @@ export function sanitizeEvent(event: Record<string, unknown>): SanitizedEvent | 
 				toolCallId: String(event.toolCallId ?? ""),
 				resultPreview: previewResult(event.result),
 				isError: event.isError === true,
+				diagram: diagramCardFromDetails((event.result as Record<string, unknown> | undefined)?.details),
 			};
 
 		case "compaction_start":

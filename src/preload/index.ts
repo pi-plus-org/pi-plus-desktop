@@ -79,6 +79,7 @@ const api: PiApi = {
 	},
 	listDir: (tabId, subpath, prefix) => ipcRenderer.invoke(IPC.invoke.listDir, tabId, subpath, prefix),
 	revealPath: (path) => ipcRenderer.invoke(IPC.invoke.revealPath, path),
+	openPath: (path) => ipcRenderer.invoke(IPC.invoke.openPath, path),
 	openExternal: (url) => ipcRenderer.invoke(IPC.invoke.openExternal, url),
 	respondDialog: (requestId, value) => ipcRenderer.send(IPC.invoke.respondDialog, requestId, value),
 	respondAuthPrompt: (requestId, value) => ipcRenderer.send(IPC.invoke.respondAuthPrompt, requestId, value),

@@ -387,6 +387,16 @@ function registerIpc(): void {
 		}
 	});
 
+	// Open an absolute path with the OS default application (diagram HTML cards
+	// use this to land the standalone page in the default browser). shell.openPath
+	// resolves to "" on success and an error string otherwise; a missing path
+	// gets an explicit message like revealPath.
+	ipcMain.handle(IPC.invoke.openPath, async (_e, target: string) => {
+		if (!target) return "No path given";
+		if (!existsSync(target)) return `'${target}' does not exist`;
+		return shell.openPath(target);
+	});
+
 	// Open a URL in a NEW tab of the OS default web browser. The renderer is
 	// sandboxed and CSP-locked to 'self', so markdown links in chat messages
 	// route through here; only http(s) may leave the app (same allowlist as

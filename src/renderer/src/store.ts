@@ -8,6 +8,7 @@ import type {
 	BashResultDTO,
 	ChatMessageDTO,
 	ContentBlockDTO,
+	DiagramCardDTO,
 	EnsureResult,
 	PermissionMode,
 	PromptResultDTO,
@@ -26,6 +27,9 @@ export interface ToolBlock {
 	argsPreview: string;
 	status: "running" | "done" | "error";
 	resultPreview?: string;
+	/** draw_diagram result card (from tool_execution_end.diagram): the row
+	 *  renders the visual card instead of the JSON/ASCII previews. */
+	diagram?: DiagramCardDTO;
 }
 
 /**
@@ -521,6 +525,7 @@ class Store {
 				if (tool) {
 					tool.status = event.isError ? "error" : "done";
 					tool.resultPreview = event.resultPreview;
+					if (event.diagram) tool.diagram = event.diagram;
 					this.emit({ type: "chat", tabId });
 				}
 				break;

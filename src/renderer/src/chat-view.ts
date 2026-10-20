@@ -8,6 +8,7 @@ import { isImagePath } from "../../shared/attachments.ts";
 import type { ChatMessageDTO, ContentBlockDTO } from "../../shared/ipc-types.ts";
 import { thumbSrc } from "./image-thumb.ts";
 import { renderDiffView, renderAddedFile } from "./diff-view.ts";
+import { renderDiagramCard } from "./diagram-view.ts";
 import { renderMarkdownToHtml, escapeHtml } from "./markdown.ts";
 import { notify } from "./dialogs.ts";
 import { store, type ChatItem, type TabState, type ToolBlock } from "./store.ts";
@@ -35,6 +36,15 @@ function renderToolRow(tab: TabState, toolCallId: string, fallbackName: string):
 	row.append(header);
 
 	const body = el("div", "tool-body");
+	// draw_diagram finished: the card replaces both raw previews — its SVG/ASCII
+	// view is the diagram, the JSON args would only repeat what it shows.
+	if (tool?.diagram && status !== "error") {
+		body.append(renderDiagramCard(tool.diagram));
+		row.append(body);
+		header.classList.add("tool-toggle");
+		header.addEventListener("click", () => row.classList.toggle("tool-open"));
+		return row;
+	}
 	const args = tool?.argsPreview ?? "";
 	if (args) body.append(el("pre", "tool-pre tool-args", args));
 	if (tool?.resultPreview) body.append(el("pre", "tool-pre tool-result", tool.resultPreview));
@@ -287,6 +297,12 @@ function renderToolResultItem(tab: TabState, message: ChatMessageDTO): HTMLEleme
 	if (!message.isError && name === "write" && typeof args?.content === "string" && args.content.trim() !== "") {
 		row.append(el("div", "toolresult-label", `✚ write${path ? ` ${path}` : ""}`));
 		row.append(renderAddedFile(args.content));
+		return row;
+	}
+	// Resumed draw_diagram transcript: same visual card as the live row.
+	if (!message.isError && message.diagram) {
+		row.append(el("div", "toolresult-label", `⛁ ${message.diagram.title || "draw_diagram"}`));
+		row.append(renderDiagramCard(message.diagram));
 		return row;
 	}
 	const label = el("div", "toolresult-label", `${message.isError ? "✗" : "✓"} ${name}`);

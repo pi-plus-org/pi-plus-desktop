@@ -37,7 +37,7 @@ import {
 } from "../shared/ipc-types.ts";
 import type { DialogBridge } from "./dialogs.ts";
 import type { ProfileStore } from "./profiles.ts";
-import { sanitizeEvent, sanitizeSnapshot } from "./session-sanitize.ts";
+import { sanitizeEvent, sanitizeSnapshot, setDiagramSvgRenderer } from "./session-sanitize.ts";
 
 // Imported dynamically so the sdk-shim module (a static import above) installs
 // the global require before pi-plus-sdk's ESM bundle evaluates — static imports
@@ -54,6 +54,13 @@ const {
 	getContextWindowCapTokens,
 	setContextWindowCapTokens,
 } = sdk;
+
+// draw_diagram display cards: hand the sanitizer the SDK's diagram SVG
+// renderer so diagram tool results render as inline visuals instead of an
+// ASCII/JSON blob. The d.ts may lag a published sdk, so probe defensively —
+// without it the card still renders the tool's own ASCII.
+const renderDiagramSvg = (sdk as { renderDiagramSvg?: (spec: never) => string }).renderDiagramSvg;
+if (typeof renderDiagramSvg === "function") setDiagramSvgRenderer(renderDiagramSvg);
 
 // The published pi-plus-sdk runtime (api.js bundles the newer coding-agent
 // sources) has these members, but its type surface re-exports the published
