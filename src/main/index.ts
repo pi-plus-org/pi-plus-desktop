@@ -19,6 +19,7 @@ import { ProfileStore } from "./profiles.ts";
 import { PackageStore } from "./packages.ts";
 import { AppSettings } from "./settings.ts";
 import { SessionHost } from "./session-host.ts";
+import { attachWindowState, resolveWindowRect } from "./window-state.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -167,15 +168,19 @@ function guardNavigation(win: BrowserWindow): void {
 }
 
 function createWindow(): void {
+	// Size/position/zoom from the last run (1280x840 / 100% on a first launch);
+	// the rect is passed to the constructor so the window never visibly jumps.
+	const rect = resolveWindowRect(settings.windowBounds, { width: 1280, height: 840 });
 	mainWindow = new BrowserWindow({
-		width: 1280,
-		height: 840,
+		...rect,
 		minWidth: 720,
 		minHeight: 480,
 		title: "pi-plus",
 		icon: appIcon(),
-		webPreferences,
+		webPreferences: { ...webPreferences, zoomFactor: settings.zoomFactor },
 	});
+	attachWindowState(mainWindow, settings);
+	if (settings.windowBounds?.maximized) mainWindow.maximize();
 	guardNavigation(mainWindow);
 	mainWindow.loadFile(path.join(__dirname, "renderer/index.html"));
 	mainWindow.on("closed", () => {

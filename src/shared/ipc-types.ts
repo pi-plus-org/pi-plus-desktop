@@ -372,7 +372,7 @@ export interface DialogRequestDTO {
 }
 
 export interface MenuActionDTO {
-	action: "new-tab" | "close-active-tab" | "prev-tab" | "next-tab" | "toggle-sidebar" | "toggle-filetree" | "edit-externally" | "reload-history" | "focus-composer";
+	action: "new-tab" | "close-active-tab" | "prev-tab" | "next-tab" | "toggle-sidebar" | "toggle-filetree" | "edit-externally" | "reload-history" | "focus-composer" | "search-messages";
 }
 
 /** One entry of a tab-cwd directory listing (for the composer's @-menu). */

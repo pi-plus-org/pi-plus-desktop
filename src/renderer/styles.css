@@ -463,6 +463,8 @@ body {
 	display: flex;
 	flex-direction: column;
 	min-width: 0;
+	/* Positioning ancestor for the floating find bar (.search-bar). */
+	position: relative;
 	/* min-height:0 keeps the flex column at the viewport height so the
 	   tabbar / #chat / status strip / composer each get their own share and
 	   only #chat scrolls. */
@@ -2805,5 +2807,153 @@ pre.diagram-svg {
 
 	.newchat-card {
 		box-shadow: 0 10px 28px rgba(31, 35, 40, 0.1);
+	}
+}
+
+/* ---------------- in-session message search ---------------- */
+
+/* Floating find bar over the chat pane's top-right corner (like a browser
+   find bar): absolutely positioned inside #main so it never takes flow space
+   from the messages. */
+.search-bar {
+	position: absolute;
+	top: 42px;
+	right: 14px;
+	z-index: 8;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 4px 6px 4px 10px;
+	background: rgba(23, 25, 29, 0.97);
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	box-shadow:
+		0 0 0 1px rgba(255, 255, 255, 0.04),
+		0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.search-bar:focus-within {
+	border-color: var(--accent-dim);
+	box-shadow:
+		0 0 0 1px rgba(79, 142, 247, 0.35),
+		0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+/* Hidden means hidden: no rows carry highlight classes either (the bar's
+   close() strips them), so the transcript reads as untouched. */
+.search-bar-hidden {
+	display: none;
+}
+
+.search-bar-icon {
+	display: flex;
+	align-items: center;
+	color: var(--text-dim);
+	flex: 0 0 auto;
+}
+
+.search-bar-input {
+	width: 230px;
+	min-width: 0;
+	background: none;
+	border: none;
+	outline: none;
+	color: var(--text);
+	font: inherit;
+	font-size: 13px;
+}
+
+.search-bar-input::placeholder {
+	color: var(--text-dim);
+	opacity: 0.8;
+}
+
+.search-bar-count {
+	flex: 0 0 auto;
+	min-width: 48px;
+	text-align: center;
+	font-size: 11px;
+	color: var(--text-dim);
+	/* tabular digits so "9 / 10" -> "10 / 10" does not jitter the bar */
+	font-variant-numeric: tabular-nums;
+}
+
+.search-bar-empty {
+	color: var(--danger);
+}
+
+.search-bar-btn {
+	flex: 0 0 auto;
+	width: 24px;
+	height: 24px;
+	display: grid;
+	place-items: center;
+	border: none;
+	border-radius: 50%;
+	background: none;
+	color: var(--text-dim);
+	font-size: 11px;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.search-bar-btn:hover:not(:disabled) {
+	color: var(--text);
+	background: var(--bg-hover);
+}
+
+.search-bar-btn:disabled {
+	opacity: 0.4;
+	cursor: default;
+}
+
+.search-bar-btn svg {
+	display: block;
+}
+
+/* Every message holding a match: an inset accent bar, no layout shift (rows
+   keep their own backgrounds/padding). */
+.msg-search-hit {
+	box-shadow: inset 2px 0 0 rgba(79, 142, 247, 0.4);
+	border-radius: var(--radius);
+}
+
+/* The message holding the current match. */
+.msg-search-active {
+	box-shadow:
+		inset 2px 0 0 var(--accent),
+		0 0 0 1px rgba(79, 142, 247, 0.4),
+		0 0 14px rgba(79, 142, 247, 0.18);
+}
+
+mark.msg-search-mark {
+	background: rgba(198, 144, 38, 0.35);
+	color: inherit;
+	border-radius: 2px;
+	padding: 0 1px;
+}
+
+mark.msg-search-mark-current {
+	background: var(--warn);
+	color: #14161a;
+}
+
+/* Light theme: the bar keeps the page's own surfaces instead of the dark pill.
+   Media query (not a data-theme attribute) — same mechanism as the light block
+   above, and placed after it so the equal-specificity override wins. */
+@media (prefers-color-scheme: light) {
+	.search-bar {
+		background: #f6f8fa;
+		box-shadow:
+			0 0 0 1px rgba(31, 35, 40, 0.06),
+			0 8px 24px rgba(31, 35, 40, 0.14);
+	}
+
+	mark.msg-search-mark {
+		background: rgba(212, 163, 10, 0.28);
+	}
+
+	mark.msg-search-mark-current {
+		color: #ffffff;
 	}
 }

@@ -10,6 +10,7 @@ import { Composer, type TabActions } from "./composer.ts";
 import { Dialogs } from "./dialogs.ts";
 import { clampFiletreeWidth, FileTree } from "./filetree.ts";
 import { NewChatForm } from "./new-chat.ts";
+import { MessageSearch } from "./message-search.ts";
 import { clampSidebarWidth, Sidebar } from "./sidebar.ts";
 import { store, type TabState } from "./store.ts";
 import { TabsBar } from "./tabs.ts";
@@ -175,6 +176,7 @@ async function resumeSession(item: SessionListItemDTO): Promise<void> {
 }
 
 let composerRef: Composer | null = null;
+let messageSearchRef: MessageSearch | null = null;
 let todoStripRef: TodoStrip | null = null;
 let sidebarRef: Sidebar | null = null;
 let fileTreeRef: FileTree | null = null;
@@ -289,6 +291,9 @@ const tabActions: TabActions = {
 		store.setActive(tab.tabId);
 		void sendPrompt("/init");
 	},
+	search(): void {
+		messageSearchRef?.open();
+	},
 };
 
 function init(): void {
@@ -337,6 +342,10 @@ function init(): void {
 	const todoStrip = new TodoStrip($("#composer"));
 	todoStripRef = todoStrip;
 	const mainEl = $("#main");
+	// In-session transcript find bar: floats over the chat pane's top-right
+	// corner (#main is the positioning ancestor) and walks the active tab's rows.
+	const messageSearch = new MessageSearch($("#chat"), { onFocusClose: () => composerRef?.focus() });
+	messageSearchRef = messageSearch;
 
 	// Blank launch state: the centered new-chat form replaces chat + composer
 	// until a tab exists. Typed text is sent as the session's first prompt.
@@ -405,6 +414,9 @@ function init(): void {
 				sidebar.scheduleRefresh();
 				break;
 		}
+		// ChatView rebuilds rows on every transcript change, which drops the search
+		// decoration; the find bar repaints (no-op while it is closed).
+		messageSearch.schedule();
 	});
 
 	window.pi.onSessionEvent(({ tabId, event }) => store.applyEvent(tabId, event));
@@ -449,6 +461,9 @@ function init(): void {
 			case "focus-composer":
 				composerRef?.focus();
 				break;
+			case "search-messages":
+				messageSearch.open();
+				break;
 		}
 	});
 
@@ -472,7 +487,7 @@ function init(): void {
 	// Debug/automation hook: lets external drivers (CDP smoke) replicate the
 	// newTab() flow (create tab + init store + ensure session) without the
 	// native folder picker.
-	(window as unknown as { __pi: { store: typeof store } }).__pi = { store };
+	(window as unknown as { __pi: { store: typeof store; search: MessageSearch } }).__pi = { store, search: messageSearch };
 }
 
 let dialogs: Dialogs;

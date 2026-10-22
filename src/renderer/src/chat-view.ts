@@ -436,7 +436,12 @@ export class ChatView {
 			if (!openOn) this.releaseSlot(tab.tabId);
 		}
 		for (const [i, item] of tab.items.entries()) {
-			node.append(this.renderItem(tab, item, openOn && openOn.item === i ? openOn.thinking : undefined));
+			const row = this.renderItem(tab, item, openOn && openOn.item === i ? openOn.thinking : undefined);
+			// Addressable row index for the in-session message search
+			// (message-search.ts): every transcript row carries its own index, so the
+			// search never has to assume anything about the pane's child order.
+			row.dataset.chatIndex = String(i);
+			node.append(row);
 		}
 		this.renderStream(tab);
 		this.scrollToEnd(tab);
@@ -517,6 +522,8 @@ export class ChatView {
 			this.streamNode = el("div", "msg msg-assistant msg-streaming");
 			node.append(this.streamNode);
 		}
+		// The live tail is the row *after* the last finalized item.
+		this.streamNode.dataset.chatIndex = String(tab.items.length);
 		const body = el("div", "msg-assistant-body");
 		const blocks = [...tab.streamBlocks.entries()].sort((a, b) => a[0] - b[0]).map(([, block]) => block);
 		const thinkingIndex = lastThinkingIndex(blocks);

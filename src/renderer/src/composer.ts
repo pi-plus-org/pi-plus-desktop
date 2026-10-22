@@ -1,8 +1,9 @@
 /**
  * Composer: a fixed 3-line chat box (overflow scrolls inside) whose bottom
  * strip carries the buttons — paperclip file picker with pending-attachment
- * chips, the "⋯" session-actions menu (rename/clone/cd/fork/rewind//init)
- * and the external-editor ✎ on the left, the round Send/Stop button on the
+ * chips, the "⋯" session-actions menu (rename/clone/cd/fork/rewind//init),
+ * the external-editor ✎ and the transcript-search magnifier on the left, the
+ * round Send/Stop button on the
  * right (Enter to send, Shift+Enter newline, Esc stops while streaming).
  * Files also arrive by drag & drop onto the box and by pasting images (and
  * copied files) into the textarea; pathless payloads (clipboard images,
@@ -32,6 +33,7 @@ import type { ChatMessageDTO, CommandDTO, DirEntryDTO, ListDirResultDTO, Permiss
 import type { Dialogs } from "./dialogs.ts";
 import { thumbSrc } from "./image-thumb.ts";
 import { formatTokens, store, type TabState } from "./store.ts";
+import { searchSvg } from "./message-search.ts";
 
 /** How far back from the caret to look for the "@" trigger. */
 const MAX_AT_TOKEN = 256;
@@ -119,6 +121,8 @@ export interface TabActions {
 	forkMessage(tab: TabState): void;
 	rewind(tab: TabState): void;
 	createAgentsMd(tab: TabState): void;
+	/** Open the in-session message search bar (⌘F · Ctrl+F). */
+	search(tab: TabState): void;
 }
 
 interface AtState {
@@ -141,6 +145,7 @@ export class Composer {
 	private attachButton: HTMLButtonElement;
 	private sessionMenuBtn: HTMLButtonElement;
 	private editorBtn: HTMLButtonElement;
+	private searchBtn: HTMLButtonElement;
 	private actions: TabActions | null = null;
 	private attachmentsRow: HTMLElement;
 	private atMenu: HTMLElement;
@@ -225,6 +230,18 @@ export class Composer {
 		this.editorBtn.title = "Open the draft in the external editor (⌘⌥E · pick it under Settings → Editors)";
 		this.editorBtn.addEventListener("click", () => void this.editExternally());
 
+		// Transcript search lives in the chat pane, but its trigger sits with the
+		// rest of the strip chrome so the row reads as one button set.
+		this.searchBtn = document.createElement("button");
+		this.searchBtn.className = "composer-attach composer-search-btn";
+		this.searchBtn.title = "Search messages in this session (⌘F · Ctrl+F)";
+		this.searchBtn.append(searchSvg());
+		this.searchBtn.addEventListener("click", () => {
+			const tab = store.active;
+			if (!tab) return;
+			this.actions?.search(tab);
+		});
+
 		this.button = document.createElement("button");
 		this.button.className = "composer-send";
 		this.button.textContent = "Send";
@@ -297,7 +314,7 @@ export class Composer {
 		// bottom (clip / ⋯ / permission / ✎ left, send right) — pi-hub composer style.
 		const controls = document.createElement("div");
 		controls.className = "composer-controls";
-		controls.append(this.attachButton, this.sessionMenuBtn, this.permissionBtn, this.editorBtn, this.button);
+		controls.append(this.attachButton, this.sessionMenuBtn, this.permissionBtn, this.editorBtn, this.searchBtn, this.button);
 		const box = document.createElement("div");
 		box.className = "composer-box";
 		box.append(this.textarea, controls);

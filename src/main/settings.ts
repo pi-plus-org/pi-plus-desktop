@@ -2,7 +2,7 @@
  * App-level settings, backed by the same stores `pipi` uses (pi-plus-sdk) —
  * there is no private userData settings file anymore. The desktop-only chrome
  * keys (desktopTheme / sidebarWidth / sidebarCollapsed / filetreeCollapsed /
- * defaultPermissionMode) live in the
+ * windowBounds / zoomFactor / defaultPermissionMode) live in the
  * `piPlus` block of the base agent settings.json (~/.pi/agent/settings.json,
  * via the SDK's generic readPiPlusSettings/updatePiPlusSettings), and the
  * external editor maps to the upstream `externalEditor` key of that same file
@@ -51,6 +51,29 @@ function asBool(value: unknown): boolean | undefined {
 	return typeof value === "boolean" ? value : undefined;
 }
 
+/** Remembered main-window rectangle (normal bounds) + maximized flag. */
+export interface WindowBounds {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+	maximized: boolean;
+}
+
+/** Number fields must be finite; `maximized` defaults to false. */
+function asWindowBounds(value: unknown): WindowBounds | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const { x, y, width, height, maximized } = value as Partial<Record<"x" | "y" | "width" | "height" | "maximized", unknown>>;
+	if (![x, y, width, height].every((n) => typeof n === "number" && Number.isFinite(n))) return undefined;
+	return { x: x as number, y: y as number, width: width as number, height: height as number, maximized: maximized === true };
+}
+
+/** Page zoom factor (1 = 100%); clamped to the sane range Electron offers. */
+function asZoomFactor(value: unknown): number | undefined {
+	if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+	return Math.min(3, Math.max(0.5, value));
+}
+
 /** Validate one piPlus `packageTools` entry; anything malformed falls back to auto. */
 function asPackageToolSetting(value: unknown): PackageToolSettingDTO | undefined {
 	if (typeof value !== "object" || value === null) return undefined;
@@ -93,6 +116,10 @@ export class AppSettings {
 	private _sidebarCollapsed = false;
 	/** File tree panel fold remembered across launches (renderer FileTree chip). */
 	private _filetreeCollapsed = false;
+	/** Main window rectangle from the last run (null = never saved / first launch). */
+	private _windowBounds: WindowBounds | null = null;
+	/** Main window page zoom factor from the last run (menu ⌘+/⌘-/⌘0). */
+	private _zoomFactor = 1;
 	/** Permission mode new tabs start with (Settings → Permissions). */
 	private _defaultPermissionMode: PermissionMode = "bypass";
 	/** npm/git install-tool locations (auto-detect on PATH, or a manual binary path). */
@@ -101,7 +128,7 @@ export class AppSettings {
 	// Setters mark dirty; save() persists only the touched fields (per store)
 	// and clears the flags. load() writes the caches directly, so a fresh read
 	// is never re-persisted.
-	private dirty = { theme: false, editor: false, sidebarWidth: false, filetreeWidth: false, sidebarCollapsed: false, filetreeCollapsed: false, defaultPermissionMode: false, packageTools: false };
+	private dirty = { theme: false, editor: false, sidebarWidth: false, filetreeWidth: false, sidebarCollapsed: false, filetreeCollapsed: false, windowBounds: false, zoomFactor: false, defaultPermissionMode: false, packageTools: false };
 	private editorManager: SettingsManager | null = null;
 
 	get theme(): ThemeMode {
@@ -164,6 +191,28 @@ export class AppSettings {
 		}
 	}
 
+	get windowBounds(): WindowBounds | null {
+		return this._windowBounds;
+	}
+	/** Deep-compared so the debounced window snapshot never re-dirties the same rect. */
+	set windowBounds(value: WindowBounds | null) {
+		const prev = this._windowBounds;
+		const same = (value === null && prev === null) || (!!value && !!prev && value.x === prev.x && value.y === prev.y && value.width === prev.width && value.height === prev.height && value.maximized === prev.maximized);
+		if (same) return;
+		this._windowBounds = value;
+		this.dirty.windowBounds = true;
+	}
+
+	get zoomFactor(): number {
+		return this._zoomFactor;
+	}
+	set zoomFactor(value: number) {
+		const clamped = asZoomFactor(value);
+		if (clamped === undefined || clamped === this._zoomFactor) return;
+		this._zoomFactor = clamped;
+		this.dirty.zoomFactor = true;
+	}
+
 	get defaultPermissionMode(): PermissionMode {
 		return this._defaultPermissionMode;
 	}
@@ -215,6 +264,8 @@ export class AppSettings {
 		this._filetreeWidth = asWidth(block.filetreeWidth) ?? this._filetreeWidth;
 		this._sidebarCollapsed = asBool(block.sidebarCollapsed) ?? this._sidebarCollapsed;
 		this._filetreeCollapsed = asBool(block.filetreeCollapsed) ?? this._filetreeCollapsed;
+		this._windowBounds = asWindowBounds(block.windowBounds) ?? this._windowBounds;
+		this._zoomFactor = asZoomFactor(block.zoomFactor) ?? this._zoomFactor;
 		this._defaultPermissionMode = asPermissionMode(block.defaultPermissionMode) ?? this._defaultPermissionMode;
 		this._packageTools = asPackageTools(block.packageTools) ?? this._packageTools;
 		// Raw persisted value (no $VISUAL/$EDITOR fallback) — resolveEditorCommand
@@ -231,6 +282,8 @@ export class AppSettings {
 		if (this.dirty.filetreeWidth) patch.filetreeWidth = this._filetreeWidth;
 		if (this.dirty.sidebarCollapsed) patch.sidebarCollapsed = this._sidebarCollapsed;
 		if (this.dirty.filetreeCollapsed) patch.filetreeCollapsed = this._filetreeCollapsed;
+		if (this.dirty.windowBounds) patch.windowBounds = this._windowBounds;
+		if (this.dirty.zoomFactor) patch.zoomFactor = this._zoomFactor;
 		if (this.dirty.defaultPermissionMode) patch.defaultPermissionMode = this._defaultPermissionMode;
 		if (this.dirty.packageTools) patch.packageTools = this._packageTools;
 		if (Object.keys(patch).length > 0) {
@@ -242,6 +295,8 @@ export class AppSettings {
 			this.dirty.filetreeWidth = false;
 			this.dirty.sidebarCollapsed = false;
 			this.dirty.filetreeCollapsed = false;
+			this.dirty.windowBounds = false;
+			this.dirty.zoomFactor = false;
 			this.dirty.defaultPermissionMode = false;
 			this.dirty.packageTools = false;
 		}

@@ -94,6 +94,7 @@ export function buildApplicationMenu(
 				// (chat list, panels, menus). No-op while no tab is open — the
 				// composer textarea is disabled in that state.
 				{ label: "Focus Chat Box", accelerator: "CmdOrCtrl+Alt+C", click: () => send({ action: "focus-composer" }) },
+				{ label: "Search in Session", accelerator: "CmdOrCtrl+F", click: () => send({ action: "search-messages" }) },
 				{ type: "separator" },
 				{ role: "resetZoom" },
 				{ role: "zoomIn" },
