@@ -464,6 +464,9 @@ function init(): void {
 			case "search-messages":
 				messageSearch.open();
 				break;
+			case "search-history":
+				sidebarRef?.focusSearch();
+				break;
 		}
 	});
 

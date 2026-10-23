@@ -95,6 +95,9 @@ export function buildApplicationMenu(
 				// composer textarea is disabled in that state.
 				{ label: "Focus Chat Box", accelerator: "CmdOrCtrl+Alt+C", click: () => send({ action: "focus-composer" }) },
 				{ label: "Search in Session", accelerator: "CmdOrCtrl+F", click: () => send({ action: "search-messages" }) },
+				// ⌘⇧F focuses the history panel's search box (titles + transcript
+				// content). Distinct from ⌘F, which searches inside the open session.
+				{ label: "Search History", accelerator: "CmdOrCtrl+Shift+F", click: () => send({ action: "search-history" }) },
 				{ type: "separator" },
 				{ role: "resetZoom" },
 				{ role: "zoomIn" },

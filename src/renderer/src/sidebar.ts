@@ -55,6 +55,7 @@ export class Sidebar {
 		this.searchInput = el("input", "sidebar-search") as HTMLInputElement;
 		this.searchInput.type = "search";
 		this.searchInput.placeholder = "Search titles & content…";
+		this.searchInput.title = "Search history (⌘⇧F)";
 		this.searchInput.addEventListener("input", () => {
 			this.query = this.searchInput.value;
 			this.scheduleSearch();
@@ -143,6 +144,28 @@ export class Sidebar {
 	applyCollapsed(collapsed: boolean): void {
 		if (this.touched) return; // the user already decided this session
 		this.setCollapsed(collapsed, false);
+	}
+
+	/**
+	 * Unfold the rail if needed and put the caret in the search box (with the
+	 * current query selected, so typing replaces it). ⌘⇧F → menu action
+	 * "search-history".
+	 */
+	focusSearch(): void {
+		if (this.collapsed) this.setCollapsed(false, true);
+		this.searchInput.focus();
+		this.searchInput.select();
+	}
+
+	/** Test-only visibility into the live query (scripts/test-panel-fold.mjs). */
+	searchQueryForTest(): string {
+		return this.query;
+	}
+
+	/** Test-only typing into the box without firing an input event. */
+	setSearchTextForTest(value: string): void {
+		this.query = value;
+		this.searchInput.value = value;
 	}
 
 	async refresh(): Promise<void> {
