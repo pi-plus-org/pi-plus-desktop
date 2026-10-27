@@ -2957,3 +2957,197 @@ mark.msg-search-mark-current {
 		color: #ffffff;
 	}
 }
+
+/* --- Settings → MCP ------------------------------------------------------- */
+
+.mcp-toolbar {
+	flex-wrap: wrap;
+	align-items: center;
+}
+
+/* .form-input is full-width by design (forms); in the toolbar the controls sit
+   side by side, so each sizes to its content except the project path field. */
+.mcp-toolbar .form-input {
+	width: auto;
+	min-width: 0;
+}
+
+.mcp-profile {
+	flex: 0 1 240px;
+}
+
+.mcp-cwd {
+	flex: 1 1 240px;
+}
+
+.mcp-scope {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 12px;
+	color: var(--text-dim);
+	white-space: nowrap;
+}
+
+.mcp-scope input {
+	accent-color: var(--accent);
+}
+
+/* No project picked: writing to "the project file" would target relative paths. */
+.mcp-scope:has(input:disabled) {
+	opacity: 0.5;
+}
+
+.mcp-paths {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	margin-bottom: 10px;
+}
+
+.mcp-path {
+	font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+	word-break: break-all;
+}
+
+.mcp-note {
+	color: var(--warn);
+}
+
+.mcp-mini-btn {
+	padding: 2px 8px;
+	font-size: 11px;
+}
+
+.mcp-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-bottom: 18px;
+}
+
+.mcp-row {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: 12px 14px;
+	background: var(--bg-input);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+}
+
+/* A disabled server is still listed — its config is real — just quieter. */
+.mcp-row-off {
+	opacity: 0.6;
+}
+
+/* One row action at a time: the busy row's controls are dead while it runs. */
+.mcp-row-busy .mcp-actions {
+	pointer-events: none;
+	opacity: 0.5;
+}
+
+.mcp-row-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 7px;
+}
+
+.mcp-name {
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.mcp-transport {
+	font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+	font-size: 12px;
+	color: var(--text-dim);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.mcp-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+}
+
+.mcp-actions .dialog-btn:disabled,
+.mcp-actions .form-input:disabled,
+.mcp-toolbar .dialog-btn:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+
+.mcp-exposure {
+	width: auto;
+	padding: 3px 6px;
+	font-size: 12px;
+}
+
+/* Scope and connection-state chips. */
+.mcp-pill {
+	padding: 1px 7px;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	font-size: 11px;
+	color: var(--text-dim);
+	background: var(--bg);
+}
+
+.mcp-state-connected {
+	color: var(--ok);
+	border-color: var(--ok);
+}
+
+.mcp-state-needs-auth {
+	color: var(--warn);
+	border-color: var(--warn);
+}
+
+.mcp-state-connecting {
+	color: var(--accent);
+	border-color: var(--accent);
+}
+
+.mcp-state-failed {
+	color: var(--danger);
+	border-color: var(--danger);
+}
+
+.mcp-creds {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.mcp-cred {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	font-size: 12px;
+}
+
+.mcp-cred-key {
+	font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+	word-break: break-all;
+}
+
+/* Add / edit dialog: the JSON entry is the body of the form. */
+.mcp-dialog {
+	width: min(680px, 92vw);
+}
+
+.mcp-json {
+	min-height: 240px;
+	font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+	font-size: 12px;
+	line-height: 1.5;
+	tab-size: 2;
+	resize: vertical;
+}

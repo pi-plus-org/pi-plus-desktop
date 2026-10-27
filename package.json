@@ -1,37 +1,39 @@
 {
-	"name": "pi-plus-desktop",
-	"version": "0.1.18",
-	"description": "Desktop app for pi-plus: multi-tab AI agent sessions with profile management, built on pi-plus-sdk.",
-	"type": "module",
-	"main": "dist/main.js",
-	"scripts": {
-		"dev": "node scripts/dev.mjs",
-		"build": "node devops/module/build.mjs",
-		"start": "electron .",
-		"typecheck": "tsc --noEmit",
-		"smoke": "node scripts/smoke.mjs",
-		"test:thinking": "node scripts/test-thinking-dom.mjs",
-		"test:diagram": "node scripts/test-diagram-card.mjs",
-		"test:panels": "node scripts/test-panel-fold.mjs",
-		"test:history": "node scripts/test-composer-history.mjs",
-		"test:scroll": "node scripts/test-tab-scroll.mjs",
-		"test:search": "node scripts/test-message-search.mjs",
-		"test:windows": "node scripts/test-window-state.mjs",
-		"test:keys": "node scripts/test-key-hints.mjs",
-		"test:steer-queue": "node scripts/test-steer-queue.mjs",
-		"test:steer-e2e": "node scripts/test-steer-e2e.mjs",
-		"test:steer-longtool": "node scripts/test-steer-longtool.mjs",
-		"icon": "electron scripts/make-icon.mjs && node scripts/make-ico.mjs"
-	},
-	"dependencies": {
-		"dompurify": "^3.2.4",
-		"marked": "^15.0.7",
-		"pi-plus-sdk": "^0.2.28"
-	},
-	"devDependencies": {
-		"@types/node": "^22.13.0",
-		"electron": "^39.0.0",
-		"esbuild": "^0.25.0",
-		"typescript": "^5.8.0"
-	}
+  "name": "pi-plus-desktop",
+  "version": "0.1.18",
+  "description": "Desktop app for pi-plus: multi-tab AI agent sessions with profile management, built on pi-plus-sdk.",
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "node devops/module/build.mjs",
+    "start": "electron .",
+    "typecheck": "tsc --noEmit",
+    "smoke": "node scripts/smoke.mjs",
+    "test:thinking": "node scripts/test-thinking-dom.mjs",
+    "test:diagram": "node scripts/test-diagram-card.mjs",
+    "test:panels": "node scripts/test-panel-fold.mjs",
+    "test:history": "node scripts/test-composer-history.mjs",
+    "test:scroll": "node scripts/test-tab-scroll.mjs",
+    "test:search": "node scripts/test-message-search.mjs",
+    "test:windows": "node scripts/test-window-state.mjs",
+    "test:keys": "node scripts/test-key-hints.mjs",
+    "test:steer-queue": "node scripts/test-steer-queue.mjs",
+    "test:steer-e2e": "node scripts/test-steer-e2e.mjs",
+    "test:steer-longtool": "node scripts/test-steer-longtool.mjs",
+    "icon": "electron scripts/make-icon.mjs && node scripts/make-ico.mjs",
+    "test:mcp": "node scripts/test-mcp-pane.mjs",
+    "test:mcp-config": "node scripts/test-mcp-config.mjs"
+  },
+  "dependencies": {
+    "dompurify": "^3.2.4",
+    "marked": "^15.0.7",
+    "pi-plus-sdk": "^0.2.30"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "electron": "^39.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0"
+  }
 }

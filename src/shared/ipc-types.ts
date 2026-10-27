@@ -413,6 +413,86 @@ export interface PackageToolsSettingsDTO {
  * settings.json (~/.pi/agent/settings.json) via pi-plus-sdk; `editor` is the
  * upstream `externalEditor` key of that same file (shared with pipi's Ctrl+G).
  */
+// ---------------------------------------------------------------------------
+// MCP (Settings → MCP pane). Mirrors the SDK's MCP API — the programmatic twin
+// of `pi mcp list/add/remove/login/logout`. Paths are absolute; config values
+// are the RAW file text, never resolved, so `${VAR}` / `!cmd` secrets stay put.
+// ---------------------------------------------------------------------------
+
+/** Which two files a request merges, and which one a write targets. */
+export interface McpTargetDTO {
+	/** Profile whose materialized agent dir holds the global `mcp.json`. Absent /
+	 * empty = the base agent dir (`~/.pi/agent`), shared with `pipi`. */
+	profile?: string;
+	/** Project root whose `.pi/mcp.json` participates. Omitted = no project file. */
+	cwd?: string;
+	/** false (default) = writes go to the profile/base agent dir; true = the project file. */
+	local?: boolean;
+	/** Whether the project may contribute its config at all (default true). */
+	projectTrusted?: boolean;
+}
+
+/** One server as the merged config sees it. `config` is the EFFECTIVE entry — a
+ * project override of enabled/exposure is already folded in. */
+export interface McpServerDTO {
+	name: string;
+	/** Which file defines the entry ("extension" = registered by an extension). */
+	scope: "global" | "project" | "extension";
+	enabled: boolean;
+	/** Server-level exposure; pi defaults to "codemode". */
+	exposure: string;
+	/** "stdio" (command line) or the URL — what `pi mcp list` prints. */
+	transport: string;
+	kind: "stdio" | "http" | "override";
+	/** True when the entry is a URL server that signs in with OAuth. */
+	oauth: boolean;
+	/** True when a project file overrides this global server's enabled/exposure. */
+	overridden: boolean;
+	/** File that defines the entry (extension path for scope "extension"). */
+	source: string;
+	/** Raw mcp.json entry for the JSON editor (absent for extension servers). */
+	config?: Record<string, unknown>;
+	/** Live tool names from the last `check`, when one has run. */
+	tools?: string[];
+}
+
+/** Snapshot of the config pi would start a session with. A broken file reports
+ * in `errors` instead of throwing. */
+export interface McpSnapshotDTO {
+	servers: McpServerDTO[];
+	errors: string[];
+	paths: { global: string; project: string };
+	/** Set when a project cwd is given but its config is ignored (not trusted). */
+	note?: string;
+}
+
+/** Live state of one server after `checkMcpServers` (which spawns stdio kids). */
+export interface McpStatusDTO {
+	name: string;
+	state: "disabled" | "connecting" | "connected" | "disconnected" | "needs-auth" | "failed" | "closed";
+	transport: string;
+	tools: string[];
+	resources?: boolean;
+	error?: string;
+}
+
+export interface McpCheckResultDTO {
+	statuses: McpStatusDTO[];
+	errors: string[];
+	note?: string;
+}
+
+/** One stored OAuth record (`<agentDir>/mcp-auth.json`) — never token material. */
+export interface McpCredentialDTO {
+	key: string;
+	hasClientInformation: boolean;
+	hasTokens: boolean;
+	tokensExpireAt?: number;
+}
+
+/** Where `mcpPatch` writes an enabled/exposure change. */
+export type McpPatchScopeDTO = "auto" | "global" | "project";
+
 export interface AppSettingsDTO {
 	theme: ThemeMode;
 	/** External editor command line for the composer (e.g. "code --wait"). */
@@ -533,6 +613,15 @@ export const IPC = {
 		packagesRemove: "packages:remove",
 		packagesUpdate: "packages:update",
 		packagesTools: "packages:tools",
+		mcpSnapshot: "mcp:snapshot",
+		mcpCheck: "mcp:check",
+		mcpAdd: "mcp:add",
+		mcpRemove: "mcp:remove",
+		mcpPatch: "mcp:patch",
+		mcpValidate: "mcp:validate",
+		mcpLogin: "mcp:login",
+		mcpLogout: "mcp:logout",
+		mcpCredentials: "mcp:credentials",
 	},
 	push: {
 		sessionEvent: "session:event",
@@ -722,6 +811,29 @@ export interface PiApi {
 	removePackage(source: string): Promise<PackageDTO[]>;
 	/** Omit source to update every configured package. */
 	updatePackages(source?: string): Promise<PackageDTO[]>;
+	/** Merged mcp.json view for one target: servers + load errors + file paths. */
+	mcpSnapshot(target: McpTargetDTO): Promise<McpSnapshotDTO>;
+	/** Connect to every enabled server and report state/tools (spawns stdio kids). */
+	mcpCheck(target: McpTargetDTO): Promise<McpCheckResultDTO>;
+	/** Add or replace a server; the raw entry is validated before anything writes. */
+	mcpAdd(name: string, config: unknown, target: McpTargetDTO): Promise<McpSnapshotDTO>;
+	/** Remove a server from the targeted file only (OAuth credentials stay). */
+	mcpRemove(name: string, target: McpTargetDTO): Promise<McpSnapshotDTO>;
+	/** Patch enabled/exposure of an existing server (connection config untouched). */
+	mcpPatch(
+		name: string,
+		patch: { enabled?: boolean; exposure?: string },
+		scope: McpPatchScopeDTO,
+		target: McpTargetDTO,
+	): Promise<McpSnapshotDTO>;
+	/** Validate a raw entry without writing it: null = OK, else pi's message. */
+	mcpValidate(name: string, config: unknown): Promise<string | null>;
+	/** Run pi's OAuth sign-in for one server (opens the system browser). */
+	mcpLogin(name: string, target: McpTargetDTO): Promise<string[]>;
+	/** Forget a server's stored credentials: false when it never signed in. */
+	mcpLogout(name: string, target: McpTargetDTO): Promise<boolean>;
+	/** Stored OAuth records for the target's agent dir (no token material). */
+	mcpCredentials(target: McpTargetDTO): Promise<McpCredentialDTO[]>;
 	onMenuAction(cb: (action: MenuActionDTO) => void): () => void;
 	onAuthPrompt(cb: (prompt: AuthPromptDTO) => void): () => void;
 	/** The SDK resolved a prompt out-of-band (e.g. OAuth callback beat manual code). */

@@ -9,12 +9,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, shell } from "electron";
 import { isImagePath } from "../shared/attachments.ts";
-import { IPC, type CompactionPatch, type DirEntryDTO, type ListDirResultDTO, type PackageToolsSettingsDTO, type PermissionMode, type ProfileDTO, type ThemeMode } from "../shared/ipc-types.ts";
+import { IPC, type CompactionPatch, type DirEntryDTO, type ListDirResultDTO, type McpPatchScopeDTO, type McpTargetDTO, type PackageToolsSettingsDTO, type PermissionMode, type ProfileDTO, type ThemeMode } from "../shared/ipc-types.ts";
 import { LoginBridge } from "./auth-bridge.ts";
 import { openInNewTab } from "./browser-link.ts";
 import { DialogBridge } from "./dialogs.ts";
 import { EXTRA_BIN_DIRS, listAvailableEditors, openInEditor } from "./editor.ts";
 import { buildApplicationMenu } from "./menu.ts";
+import { McpStore } from "./mcp.ts";
 import { ProfileStore } from "./profiles.ts";
 import { PackageStore } from "./packages.ts";
 import { AppSettings } from "./settings.ts";
@@ -130,6 +131,9 @@ const loginBridge = new LoginBridge(
 const packageStore = new PackageStore((event) => {
 	for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IPC.push.packagesProgress, event);
 });
+// MCP server maintenance (Settings → MCP pane). The store is stateless apart
+// from its write queue: reads always re-resolve the target's two config files.
+const mcpStore = new McpStore((profile) => profileStore.resolveAgentDir(profile ?? null).agentDir);
 // A successful package install/remove/update only affects sessions created
 // afterwards (extensions load/bind at session creation), so the main window
 // (which owns the tabs) is notified and offers to restart its open sessions.
@@ -523,6 +527,24 @@ function registerIpc(): void {
 	ipcMain.handle(IPC.invoke.packagesRemove, (_e, source: string) => packageStore.remove(source));
 	ipcMain.handle(IPC.invoke.packagesUpdate, (_e, source?: string) => packageStore.update(source));
 	ipcMain.handle(IPC.invoke.packagesTools, () => packageStore.checkTools());
+
+	// MCP (Settings → MCP pane). Reads resolve to a merged snapshot; every write
+	// resolves to the snapshot as it now stands, so the pane never repaints stale.
+	ipcMain.handle(IPC.invoke.mcpSnapshot, (_e, target: McpTargetDTO) => mcpStore.snapshot(target));
+	ipcMain.handle(IPC.invoke.mcpCheck, (_e, target: McpTargetDTO) => mcpStore.check(target));
+	ipcMain.handle(IPC.invoke.mcpAdd, (_e, name: string, config: unknown, target: McpTargetDTO) =>
+		mcpStore.add(name, config, target),
+	);
+	ipcMain.handle(IPC.invoke.mcpRemove, (_e, name: string, target: McpTargetDTO) => mcpStore.remove(name, target));
+	ipcMain.handle(
+		IPC.invoke.mcpPatch,
+		(_e, name: string, patch: { enabled?: boolean; exposure?: string }, scope: McpPatchScopeDTO, target: McpTargetDTO) =>
+			mcpStore.patch(name, patch, scope, target),
+	);
+	ipcMain.handle(IPC.invoke.mcpValidate, (_e, name: string, config: unknown) => mcpStore.validate(name, config));
+	ipcMain.handle(IPC.invoke.mcpLogin, (_e, name: string, target: McpTargetDTO) => mcpStore.login(name, target));
+	ipcMain.handle(IPC.invoke.mcpLogout, (_e, name: string, target: McpTargetDTO) => mcpStore.logout(name, target));
+	ipcMain.handle(IPC.invoke.mcpCredentials, (_e, target: McpTargetDTO) => mcpStore.credentials(target));
 }
 
 // Dev runner (scripts/dev.mjs) signals renderer/preload rebuilds via SIGUSR1.

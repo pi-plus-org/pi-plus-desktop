@@ -14,7 +14,7 @@ import { randomUUID } from "node:crypto";
 import { resolve as resolvePath } from "node:path";
 import type { WebContents } from "electron";
 import "./sdk-shim.ts";
-import type { AgentSession, AgentSessionEvent, AgentSessionRuntime, PermissionModeState, SessionInfo, SettingsManager, SlashCommandInfo } from "pi-plus-sdk";
+import type { AgentSession, AgentSessionEvent, AgentSessionRuntime, InlineExtension, PermissionModeState, SessionInfo, SettingsManager, SlashCommandInfo } from "pi-plus-sdk";
 import { composePromptText } from "../shared/attachments.ts";
 import {
 	IPC,
@@ -47,6 +47,7 @@ type SdkTask = import("pi-plus-sdk").Task;
 const {
 	createPermissionsExtension,
 	createPlusAgentSessionRuntime,
+	listMcpServers,
 	getAutoCompactThresholdPercent,
 	setAutoCompactThresholdPercent,
 	getContextFloorTokens,
@@ -68,6 +69,16 @@ if (typeof renderDiagramSvg === "function") setDiagramSvgRenderer(renderDiagramS
 // shape locally keeps both the registry install and a linked ../pi build
 // typecheck-clean; the members are guaranteed present at runtime either way.
 // Remove this once the published coding-agent types carry them.
+/** MCP bridge factory: registers mcp__<server>__<tool> tools from a config
+ *  loader. Probed like the diagram renderer — a d.ts lag must not break the
+ *  build, and without it the tabs simply show no MCP tools. */
+const createMcpExtension = (
+	sdk as unknown as {
+		createMcpExtension?: (options: {
+			loadConfig?: () => ReturnType<typeof listMcpServers> | Promise<ReturnType<typeof listMcpServers>>;
+		}) => InlineExtension;
+	}
+).createMcpExtension;
 type SessionManagerSurface = (typeof sdk)["SessionManager"] & {
 	search(query: string): Promise<SessionInfo[]>;
 	deleteSession(filePath: string): boolean;
@@ -245,6 +256,18 @@ export class SessionHost {
 						state: tab.permission,
 						onModeChange: () => this.refreshMeta(tab),
 					}),
+					// MCP: pi's own config loader is the source of truth, pointed at the
+					// tab's *live* agent dir + cwd, so /cd and profile switches (which
+					// rebind the runtime) read the right mcp.json. Servers start lazily,
+					// on the model's first call; Settings → MCP edits take effect when the
+					// tab next opens (the config is read at runtime creation).
+					...(createMcpExtension
+						? [
+								createMcpExtension({
+									loadConfig: () => listMcpServers({ agentDir: tab.agentDir, cwd: tab.cwd }),
+								}),
+							]
+						: []),
 				],
 				ui: this.dialogs.handlersFor(tabId),
 				onError: (error) => {

@@ -1,6 +1,7 @@
 /**
  * Renderer entry for the dedicated Settings window: a left category panel
- * (Profiles / Appearance / Permissions / Compaction / Editors) switching the right pane. Profiles are shown as a
+ * (Profiles / Appearance / Permissions / Compaction / Editors / MCP) switching
+ * the right pane. Profiles are shown as a
  * card grid with Add / Edit / Delete / Set Default buttons; double-click a
  * card also opens the edit form. Loads over the same preload surface as the
  * main window (window.pi).
@@ -8,6 +9,7 @@
 
 import "../styles.css";
 import type { CompactionPatch, CompactionSettingsDTO, PermissionMode, ProfileDTO, ProfilesDataDTO, ThemeMode } from "../../shared/ipc-types.ts";
+import { buildMcpPane } from "./mcp-pane.ts";
 import { ProfileForm } from "./profile-form.ts";
 
 function el(tag: string, className?: string, text?: string): HTMLElement {
@@ -407,12 +409,17 @@ function init(): void {
 	);
 	void syncEditor().catch((err) => console.warn("[settings] editors list failed", err));
 
+	// Built once: the MCP pane owns its own state and loads on construction, so a
+	// second instance would double every config read.
+	const mcpPane = buildMcpPane();
+
 	const categories: Categories = [
 		{ label: "Profiles", pane: profilesPane },
 		{ label: "Appearance", pane: appearancePane },
 		{ label: "Permissions", pane: permissionsPane },
 		{ label: "Compaction", pane: compactionPane },
 		{ label: "Editors", pane: editorsPane },
+		{ label: "MCP", pane: mcpPane },
 	];
 	for (const { label } of categories) {
 		const item = el("button", "settings-nav-item", label) as HTMLButtonElement;
@@ -420,7 +427,7 @@ function init(): void {
 		navItems.set(label, item);
 		nav.append(item);
 	}
-	content.append(profilesPane, appearancePane, permissionsPane, compactionPane, editorsPane);
+	content.append(profilesPane, appearancePane, permissionsPane, compactionPane, editorsPane, mcpPane);
 	selectCategory("Profiles", categories);
 
 	void window.pi.listProfiles().then(renderProfiles).catch((err) => console.warn("[settings] listProfiles failed", err));
