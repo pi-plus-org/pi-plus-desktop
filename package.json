@@ -14,6 +14,7 @@
     "test:diagram": "node scripts/test-diagram-card.mjs",
     "test:panels": "node scripts/test-panel-fold.mjs",
     "test:history": "node scripts/test-composer-history.mjs",
+    "test:paste": "node scripts/test-composer-paste.mjs",
     "test:scroll": "node scripts/test-tab-scroll.mjs",
     "test:search": "node scripts/test-message-search.mjs",
     "test:windows": "node scripts/test-window-state.mjs",

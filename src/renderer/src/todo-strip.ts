@@ -1,8 +1,9 @@
 /**
  * TodoStrip: the pinned todo glance above the status strip — a read-only view
  * of the active tab's task list (pi-plus-tasks store, agent-managed via
- * TaskCreate/TaskUpdate). Sits above the composer toolbar (the status line)
- * inside #composer; visible only while the active session has tasks, hidden
+ * TaskCreate/TaskUpdate). Sits above the attachment chips row (which in turn
+ * sits above the composer toolbar / status line) inside #composer; visible
+ * only while the active session has tasks, hidden
  * otherwise. No add/check-off affordances by design.
  */
 
@@ -27,8 +28,12 @@ export class TodoStrip {
 
 	constructor(root: HTMLElement) {
 		this.el = el("div", "todo-strip todo-hidden");
-		// Above the status strip (composer toolbar), items stacked vertically.
-		root.insertBefore(this.el, root.querySelector(".composer-toolbar"));
+		// Above the pending-attachments row and the status strip, items stacked
+		// vertically: task list on top, attachment chips under it.
+		root.insertBefore(
+			this.el,
+			root.querySelector(".composer-attachments") ?? root.querySelector(".composer-toolbar"),
+		);
 	}
 
 	/** Reflect the active tab's task list (call on "tasks"/"active" events). */

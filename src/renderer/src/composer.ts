@@ -736,7 +736,10 @@ export class Composer {
 			const files = [...(e.clipboardData?.files ?? [])];
 			if (files.length === 0) return; // plain-text paste flows normally
 			e.preventDefault();
-			if (!store.active) return;
+			if (!store.active) {
+				this.dialogs.notify("Open a chat tab before attaching files.", "info");
+				return;
+			}
 			for (const file of files) void this.attachPayload(file);
 		});
 
