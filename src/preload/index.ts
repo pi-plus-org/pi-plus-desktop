@@ -13,6 +13,9 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 }
 
 const api: PiApi = {
+	// Sync value (no round-trip): the renderer formats keyboard hints for this
+	// OS before its first paint. See src/renderer/src/keyhints.ts.
+	platform: process.platform,
 	createTab: (opts) => ipcRenderer.invoke(IPC.invoke.createTab, opts),
 	ensureSession: (tabId, resumePath) => ipcRenderer.invoke(IPC.invoke.ensureSession, tabId, resumePath),
 	prompt: (tabId, text, attachments, mode) => ipcRenderer.invoke(IPC.invoke.prompt, tabId, text, attachments, mode),

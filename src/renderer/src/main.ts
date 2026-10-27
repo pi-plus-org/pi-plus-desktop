@@ -9,6 +9,7 @@ import { ChatView } from "./chat-view.ts";
 import { Composer, type TabActions } from "./composer.ts";
 import { Dialogs } from "./dialogs.ts";
 import { clampFiletreeWidth, FileTree } from "./filetree.ts";
+import { formatKeyHints } from "./keyhints.ts";
 import { NewChatForm } from "./new-chat.ts";
 import { MessageSearch } from "./message-search.ts";
 import { clampSidebarWidth, Sidebar } from "./sidebar.ts";
@@ -30,7 +31,9 @@ async function resolveDefaultProfile(): Promise<string | null> {
 	return data.default && data.profiles[data.default] ? data.default : null;
 }
 
-const NO_DEFAULT_PROFILE_MSG = "No default profile — create one in Settings (⌘,) and click Set Default.";
+// Visible text (a toast, not a `title`), so it is translated here — the
+// tooltip manager only covers hover hints.
+const NO_DEFAULT_PROFILE_MSG = formatKeyHints("No default profile — create one in Settings (⌘,) and click Set Default.");
 
 /** Folder picker + tab + session. Optional text becomes the first prompt. */
 async function newTab(firstPrompt?: string): Promise<boolean> {

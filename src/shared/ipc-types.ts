@@ -557,6 +557,11 @@ export const IPC = {
 // ---------------------------------------------------------------------------
 
 export interface PiApi {
+	/** `process.platform` of the host ("darwin" | "win32" | …), read
+	 *  synchronously by the renderer to pick its keyboard-hint notation
+	 *  (keyhints.ts). Exposed as a plain value, not an IPC call, so hints
+	 *  built during component construction already know the OS. */
+	platform: string;
 	createTab(opts: { cwd?: string; profileName?: string | null }): Promise<TabDescriptor>;
 	ensureSession(tabId: string, resumePath?: string): Promise<EnsureResult>;
 	/** `mode` decides queueing when a turn is already streaming (default followUp). */

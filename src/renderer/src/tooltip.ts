@@ -9,7 +9,13 @@
  * Call sites keep declaring `title` (incl. dynamic updates like Send/Stop);
  * the manager lazily moves it to `data-tip` + `aria-label` on first hover,
  * so the native tooltip never fires and nothing else needs to change.
+ *
+ * This is also the single choke point for keyboard-hint notation: every hover
+ * text goes through formatKeyHints(), so hints stay authored once in macOS
+ * glyph form ("⌘⌥B") and render as "Ctrl+Alt+B" on Windows/Linux.
  */
+
+import { formatKeyHints } from "./keyhints.ts";
 
 let bubble: HTMLDivElement | null = null;
 let current: Element | null = null;
@@ -19,8 +25,9 @@ function tipText(el: Element): string {
 	// cached data-tip.
 	const title = el.getAttribute("title");
 	if (title) {
-		el.setAttribute("data-tip", title);
-		el.setAttribute("aria-label", title);
+		const text = formatKeyHints(title);
+		el.setAttribute("data-tip", text);
+		el.setAttribute("aria-label", text);
 		el.removeAttribute("title");
 	}
 	return el.getAttribute("data-tip") ?? "";

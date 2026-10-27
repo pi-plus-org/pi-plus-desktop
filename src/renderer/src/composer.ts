@@ -121,7 +121,7 @@ export interface TabActions {
 	forkMessage(tab: TabState): void;
 	rewind(tab: TabState): void;
 	createAgentsMd(tab: TabState): void;
-	/** Open the in-session message search bar (⌘F · Ctrl+F). */
+	/** Open the in-session message search bar (⌘F, rendered Ctrl+F on Windows). */
 	search(tab: TabState): void;
 }
 
@@ -234,7 +234,9 @@ export class Composer {
 		// rest of the strip chrome so the row reads as one button set.
 		this.searchBtn = document.createElement("button");
 		this.searchBtn.className = "composer-attach composer-search-btn";
-		this.searchBtn.title = "Search messages in this session (⌘F · Ctrl+F)";
+		// Authored in glyph form only: tooltip.ts re-renders it as "Ctrl+F" on
+		// Windows/Linux, so the PC spelling must not be written out here too.
+		this.searchBtn.title = "Search messages in this session (⌘F)";
 		this.searchBtn.append(searchSvg());
 		this.searchBtn.addEventListener("click", () => {
 			const tab = store.active;
