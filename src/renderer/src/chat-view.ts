@@ -107,15 +107,20 @@ function renderUserItem(item: Extract<ChatItem, { kind: "user" }>): HTMLElement 
 				void thumbSrc(path).then((src) => {
 					if (src) img.src = src;
 					else {
-						const chip = el("span", "attachment-chip", `📎 ${name}`);
+						const chip = el("span", "attachment-chip");
 						chip.title = path;
+						chip.append("📎 ");
+						const chipName = el("span", "attachment-chip-name", name);
+						chip.append(chipName);
 						chipRow.replaceChild(chip, img); // unreadable -> plain chip
 					}
 				});
 				chipRow.append(img);
 			} else {
-				const chip = el("span", "attachment-chip", `📎 ${name}`);
+				const chip = el("span", "attachment-chip");
 				chip.title = path;
+				chip.append("📎 ");
+				chip.append(el("span", "attachment-chip-name", name));
 				chipRow.append(chip);
 			}
 		}

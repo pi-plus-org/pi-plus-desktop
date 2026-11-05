@@ -857,10 +857,14 @@ export class Composer {
 				} else if (this.folderPaths.has(path)) {
 					chip.append(document.createTextNode("📁 "));
 				}
-				chip.append(document.createTextNode(basename(path)));
+				const name = document.createElement("span");
+				name.className = "attachment-chip-name";
+				name.textContent = basename(path);
+				chip.append(name);
 				const remove = document.createElement("button");
 				remove.className = "attachment-chip-remove";
 				remove.textContent = "×";
+				remove.title = "Remove attachment";
 				remove.addEventListener("click", () => this.removeAttachment(path));
 				chip.append(remove);
 				return chip;

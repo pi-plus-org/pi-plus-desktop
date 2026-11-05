@@ -17,6 +17,7 @@
     "test:paste": "node scripts/test-composer-paste.mjs",
     "test:scroll": "node scripts/test-tab-scroll.mjs",
     "test:search": "node scripts/test-message-search.mjs",
+    "test:attachments": "node scripts/test-composer-attachments.mjs",
     "test:windows": "node scripts/test-window-state.mjs",
     "test:keys": "node scripts/test-key-hints.mjs",
     "test:steer-queue": "node scripts/test-steer-queue.mjs",

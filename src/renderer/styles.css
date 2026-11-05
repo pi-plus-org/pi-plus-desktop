@@ -1293,6 +1293,17 @@ pre.diagram-svg {
 	white-space: nowrap;
 }
 
+/* The filename must shrink (ellipsis) inside the capped chip so the trailing
+   × button is never clipped by the chip's overflow: hidden — an anonymous
+   text node cannot flex-shrink, which used to hide the × on long names. */
+.attachment-chip-name {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 .attachment-thumb {
 	width: 22px;
 	height: 22px;
@@ -1313,6 +1324,7 @@ pre.diagram-svg {
 	font-size: 13px;
 	padding: 0;
 	line-height: 1;
+	flex: 0 0 auto;
 }
 
 .attachment-chip-remove:hover {
