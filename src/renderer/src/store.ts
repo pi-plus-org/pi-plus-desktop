@@ -251,10 +251,13 @@ class Store {
 		const tab = this.tabs.get(tabId);
 		if (!tab) return;
 		if (tab.sessionId) this.liveSessions.delete(tab.sessionId);
+		const closedIndex = this.order.indexOf(tabId);
 		this.tabs.delete(tabId);
 		this.order = this.order.filter((id) => id !== tabId);
 		if (this.activeTabId === tabId) {
-			this.activeTabId = this.order[this.order.length - 1] ?? "";
+			// Activate the tab that sat next to the closed one (right neighbor,
+			// falling back to the new last tab) rather than always the last tab.
+			this.activeTabId = this.order[Math.min(closedIndex, this.order.length - 1)] ?? "";
 		}
 		this.emit({ type: "tabs" });
 		this.emit({ type: "active" });
