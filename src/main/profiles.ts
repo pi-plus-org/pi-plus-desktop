@@ -33,6 +33,7 @@ const {
 	getDefaultProfileName,
 	loadProfiles,
 	materializeProfile,
+	modelId,
 	profileDirFor,
 	refreshSharedLinks,
 	removeProfile,
@@ -48,8 +49,10 @@ const {
 export type { Profile, ProfilesData };
 
 function toDTO(profile: Profile): ProfileDTO {
-	const { token, ...rest } = profile;
-	return { ...rest, hasToken: Boolean(token) };
+	const { token, models, ...rest } = profile;
+	// The desktop UI edits bare model ids; a ModelEntry may also be a full
+	// custom-model definition (created by another host) — expose only its id.
+	return { ...rest, models: models?.map(modelId), hasToken: Boolean(token) };
 }
 
 export class ProfileStore {
@@ -98,7 +101,7 @@ export class ProfileStore {
 		if (!profileName) return null;
 		const profile = findProfile(profileName);
 		if (!profile) return null;
-		const ids = profile.models?.length ? [...profile.models] : profile.model ? [profile.model] : [];
+		const ids = profile.models?.length ? profile.models.map(modelId) : profile.model ? [profile.model] : [];
 		return { provider: profile.provider, ids, default: profile.model && ids.includes(profile.model) ? profile.model : ids[0] };
 	}
 
@@ -114,7 +117,7 @@ export class ProfileStore {
 		const owns = (name: string): boolean => {
 			const profile = data.profiles[name];
 			if (!profile) return false;
-			const ids = profile.models?.length ? profile.models : profile.model ? [profile.model] : [];
+			const ids = profile.models?.length ? profile.models.map(modelId) : profile.model ? [profile.model] : [];
 			if (ids.length === 0) return false;
 			if (profile.provider) return ids.some((id) => `${profile.provider}/${id}` === modelRef);
 			const suffix = modelRef.slice(modelRef.lastIndexOf("/") + 1);
@@ -243,8 +246,18 @@ export class ProfileStore {
 	 */
 	private mergeToken(name: string, dto: ProfileDTO): Profile {
 		const existing = findProfile(name);
-		const { hasToken, token, ...rest } = dto;
+		const { hasToken, token, models, ...rest } = dto;
 		const profile: Profile = { ...rest };
+		// The form edits bare ids, but an existing profile may hold full custom
+		// model definitions (ModelEntry objects) written by another host — carry
+		// those over when the saved id list still includes them, so a desktop
+		// edit doesn't silently strip their extra fields.
+		if (models) {
+			profile.models = models.map((id) => {
+				const entry = existing?.models?.find((e) => modelId(e) === id);
+				return typeof entry === "object" ? entry : id;
+			});
+		}
 		if (token === "") {
 			// explicit clear
 		} else if (typeof token === "string") {

@@ -276,7 +276,8 @@ export interface PackageDTO {
 
 /** Live progress from install/remove/update operations (SDK ProgressEvent). */
 export interface PackageProgressDTO {
-	type: "start" | "progress" | "complete" | "error";
+	/** `result` reports an outcome outside the start/complete pairing, e.g. one changed package after an update. */
+	type: "start" | "progress" | "complete" | "error" | "result";
 	action: "install" | "remove" | "update" | "clone" | "pull";
 	source: string;
 	message?: string;
