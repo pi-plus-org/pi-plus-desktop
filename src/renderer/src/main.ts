@@ -388,7 +388,10 @@ function init(): void {
 				break;
 			case "chat": {
 				const tab = store.tabs.get(event.tabId);
-				if (tab) chatView.refreshTools(tab);
+				// scrollEnd marks the user's own just-sent prompt/bash: always jump
+				// to the transcript end; agent-side changes only follow the bottom
+				// when the reader is already near it (chat-view measures this).
+				if (tab) chatView.refreshTools(tab, event.scrollEnd);
 				// Finalized messages carry usage/cost — refresh the status strip.
 				if (event.tabId === store.activeTabId) composer.sync();
 				// Agent tool calls create/edit/delete files — refresh the tree.

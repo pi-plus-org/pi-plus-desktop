@@ -118,7 +118,7 @@ export interface TabState {
 export type StoreEvent =
 	| { type: "tabs" } // tab list or labels changed
 	| { type: "active" }
-	| { type: "chat"; tabId: string } // items changed
+	| { type: "chat"; tabId: string; scrollEnd?: boolean } // items changed; scrollEnd = a user-sent prompt/bash block was appended
 	| { type: "stream"; tabId: string } // streaming buffer changed
 	| { type: "status"; tabId: string } // streaming flag changed
 	| { type: "meta"; tabId: string } // meta/queue/compacting changed
@@ -360,7 +360,7 @@ class Store {
 			echoId,
 			...(queueMode ? { queued: { mode: queueMode, state: "pending" as const } } : {}),
 		});
-		this.emit({ type: "chat", tabId });
+		this.emit({ type: "chat", tabId, scrollEnd: true });
 		this.emit({ type: "tabs" }); // label comes from the first user message
 		return { index: tab.items.length - 1, echoId };
 	}
@@ -416,7 +416,7 @@ class Store {
 		const tab = this.tabs.get(tabId);
 		if (!tab) return;
 		tab.items.push({ kind: "bash", requestId, command, output: "", running: true, excludeFromContext, ts: Date.now() });
-		this.emit({ type: "chat", tabId });
+		this.emit({ type: "chat", tabId, scrollEnd: true });
 	}
 
 	/** Settle a bash block once the runBash invoke resolves (result or error). */

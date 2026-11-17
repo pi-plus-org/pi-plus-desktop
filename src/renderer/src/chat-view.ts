@@ -415,9 +415,18 @@ export class ChatView {
 		return node;
 	}
 
-	/** Full re-render of one tab's message list. */
-	renderTab(tab: TabState): void {
+	/**
+	 * Full re-render of one tab's message list. `forceScroll` jumps to the
+	 * transcript end regardless of position — used when the user just sent a
+	 * prompt; every other change only *follows* new content when the reader is
+	 * already near the bottom, so someone reading mid-history is never yanked.
+	 */
+	renderTab(tab: TabState, forceScroll = false): void {
 		const node = this.containerFor(tab);
+		// "Near bottom" must be measured BEFORE the rebuild: the rebuild grows
+		// scrollHeight, so a post-hoc check would misread a bottom-pinned reader
+		// as scrolled-up whenever a single event adds more than the threshold.
+		const stick = this.nearEnd(node.parentElement);
 		node.replaceChildren();
 		this.streamNode = null;
 		// The stream tail owns the latest-thinking slot when it is thinking;
@@ -449,7 +458,7 @@ export class ChatView {
 			node.append(row);
 		}
 		this.renderStream(tab);
-		this.scrollToEnd(tab);
+		this.scrollToEnd(tab, forceScroll, stick);
 	}
 
 	/** Decide the open state for the block at `index` and build its descriptor. */
@@ -506,18 +515,21 @@ export class ChatView {
 	}
 
 	/** Refresh tool rows only (status/result updates). */
-	refreshTools(tab: TabState): void {
+	refreshTools(tab: TabState, forceScroll = false): void {
 		// Tool status changes are infrequent; a full re-render keeps the code path
 		// simple and preserves streaming node identity.
-		this.renderTab(tab);
+		this.renderTab(tab, forceScroll);
 	}
 
 	/** Update (or create) the live streaming tail. */
 	renderStream(tab: TabState): void {
 		const node = this.containerFor(tab);
+		// Same pre-mutation "at bottom" measurement as renderTab.
+		const stick = this.nearEnd(node.parentElement);
 		if (this.streamNode?.parentElement === node && tab.streamBlocks.size === 0) {
 			this.streamNode.remove();
 			this.streamNode = null;
+			this.updateJumpEnd();
 			return;
 		}
 		if (tab.streamBlocks.size === 0) return;
@@ -534,7 +546,7 @@ export class ChatView {
 		const thinkingIndex = lastThinkingIndex(blocks);
 		renderAssistantBlocks(tab, blocks, body, thinkingIndex >= 0 ? this.resolveThinking(tab.tabId, blocks, thinkingIndex) : undefined);
 		this.streamNode.replaceChildren(body);
-		this.scrollToEnd(tab, false);
+		this.scrollToEnd(tab, false, stick);
 		this.updateJumpEnd();
 	}
 
@@ -583,13 +595,21 @@ export class ChatView {
 		this.updateJumpEnd();
 	}
 
-	private scrollToEnd(tab: TabState, force = true): void {
+	/** Distance-to-end check against the shared pane. Callers that are about
+	 *  to mutate the DOM pass a value measured BEFORE the mutation (the check
+	 *  itself reads the grown scrollHeight afterwards). */
+	private nearEnd(pane: HTMLElement | null): boolean {
+		if (!pane) return true;
+		return pane.scrollHeight - pane.scrollTop - pane.clientHeight < 120;
+	}
+
+	private scrollToEnd(tab: TabState, force = true, wasNearBottom?: boolean): void {
 		if (store.activeTabId !== tab.tabId) return;
 		const node = this.containers.get(tab.tabId);
 		if (!node) return;
 		const pane = node.parentElement;
 		if (!pane) return;
-		const nearBottom = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 120;
+		const nearBottom = wasNearBottom ?? this.nearEnd(pane);
 		if (force || nearBottom) pane.scrollTop = pane.scrollHeight;
 		this.updateJumpEnd();
 	}
