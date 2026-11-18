@@ -192,6 +192,26 @@ function createWindow(): void {
 	});
 }
 
+/**
+ * Secondary windows (Settings/Packages) own no tab chrome, and on
+ * Windows/Linux the application menu is attached per window — so they would
+ * otherwise show File/View entries (New Chat, Close Tab, Search in Session…)
+ * that only act on the main window's tabs. Drop the menu bar there and keep the
+ * one chord it uniquely provided (⌘W/⌃W closes this window instead of a tab;
+ * see the Close Tab routing in menu.ts). macOS keeps the single global menu.
+ */
+function stripWindowMenu(win: BrowserWindow): void {
+	if (process.platform === "darwin") return;
+	win.removeMenu();
+	win.webContents.on("before-input-event", (e, input) => {
+		if (input.type !== "keyDown" || input.alt) return;
+		if (!input.control && !input.meta) return;
+		if (input.key.toLowerCase() !== "w") return;
+		e.preventDefault();
+		win.close();
+	});
+}
+
 function openSettingsWindow(): void {
 	if (settingsWindow && !settingsWindow.isDestroyed()) {
 		settingsWindow.focus();
@@ -206,6 +226,7 @@ function openSettingsWindow(): void {
 		icon: appIcon(),
 		webPreferences,
 	});
+	stripWindowMenu(settingsWindow);
 	guardNavigation(settingsWindow);
 	settingsWindow.loadFile(path.join(__dirname, "renderer/settings.html"));
 	settingsWindow.on("closed", () => {
@@ -230,6 +251,7 @@ function openPackagesWindow(): void {
 		icon: appIcon(),
 		webPreferences,
 	});
+	stripWindowMenu(packagesWindow);
 	guardNavigation(packagesWindow);
 	packagesWindow.loadFile(path.join(__dirname, "renderer/packages.html"));
 	packagesWindow.on("closed", () => {
