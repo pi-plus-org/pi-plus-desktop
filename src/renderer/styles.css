@@ -1686,6 +1686,9 @@ pre.diagram-svg {
 	flex: 1;
 	display: flex;
 	min-height: 0;
+	/* A long unbreakable token deep in a pane (e.g. a Windows stdio path in the
+	   MCP transport) must not push the content column past the window. */
+	min-width: 0;
 }
 
 .settings-nav {
@@ -3044,6 +3047,10 @@ mark.msg-search-mark-current {
 	flex-direction: column;
 	gap: 6px;
 	padding: 12px 14px;
+	/* min-width: 0 so a long nowrap .mcp-transport can't hold the row (and with
+	   it the whole content column) at the command's full width — the transport
+	   ellipsizes instead. */
+	min-width: 0;
 	background: var(--bg-input);
 	border: 1px solid var(--border);
 	border-radius: var(--radius);
@@ -3079,6 +3086,10 @@ mark.msg-search-mark-current {
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
+	/* The whole command path is one unbreakable token — without this the row's
+	   automatic minimum size becomes the path width and the pane outgrows the
+	   window instead of showing the ellipsis. */
+	min-width: 0;
 }
 
 .mcp-actions {
