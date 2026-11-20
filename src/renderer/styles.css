@@ -885,29 +885,6 @@ body {
 	background: var(--bg);
 }
 
-/* Older "!" cards fold to their header (exit-status footer stays visible);
- * the header click toggles .bash-open (chat-view.ts renderBashItem). */
-.bash-collapsed .bash-output {
-	display: none;
-}
-
-.bash-toggle {
-	cursor: pointer;
-	user-select: none;
-}
-
-.bash-toggle:hover {
-	background: var(--bg-hover);
-}
-
-.bash-fold-hint {
-	margin-left: auto;
-	color: var(--text-dim);
-	font-size: 11px;
-	font-style: italic;
-	flex: 0 0 auto;
-}
-
 .bash-footer {
 	padding: 4px 10px;
 	border-top: 1px solid var(--border);

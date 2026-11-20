@@ -24,16 +24,49 @@ function toolBlockFor(tab: TabState, toolCallId: string): ToolBlock | undefined 
 	return tab.tools.get(toolCallId);
 }
 
-function renderToolRow(tab: TabState, toolCallId: string, fallbackName: string): HTMLElement {
+/**
+ * Fold policy for agent bash tool rows: the tab's newest bash row renders
+ * open, every older one stays folded; manual toggles persist per toolCallId
+ * (ChatView keeps the override map) so re-renders don't undo a user choice.
+ */
+interface ToolFold {
+	isOpen: (toolCallId: string, status: string) => boolean;
+	onToggle: (toolCallId: string, open: boolean) => void;
+}
+
+function toolCallStatus(tab: TabState, toolCallId: string): string {
+	return toolBlockFor(tab, toolCallId)?.status ?? "running";
+}
+
+/**
+ * Tool-call row: header (icon + name + status) toggle-open. `openByDefault`
+ * keeps the tab's newest bash result expanded; `onToggle` records manual
+ * folds/expands so later re-renders respect them.
+ */
+function renderToolRow(
+	tab: TabState,
+	toolCallId: string,
+	fallbackName: string,
+	openByDefault = false,
+	onToggle?: (toolCallId: string, open: boolean) => void
+): HTMLElement {
 	const tool = toolBlockFor(tab, toolCallId);
 	const name = tool?.name ?? fallbackName;
 	const status = tool?.status ?? "running";
 	const row = el("div", `tool-row tool-${status}`);
+	if (openByDefault) row.classList.add("tool-open");
 	const header = el("div", "tool-header");
 	header.append(el("span", "tool-icon", status === "running" ? "▸" : status === "error" ? "✗" : "✓"));
 	header.append(el("span", "tool-name", name));
 	header.append(el("span", "tool-status", status === "running" ? "running…" : status));
 	row.append(header);
+	const wireToggle = () => {
+		header.classList.add("tool-toggle");
+		header.addEventListener("click", () => {
+			const open = row.classList.toggle("tool-open");
+			onToggle?.(toolCallId, open);
+		});
+	};
 
 	const body = el("div", "tool-body");
 	// draw_diagram finished: the card replaces both raw previews — its SVG/ASCII
@@ -41,16 +74,14 @@ function renderToolRow(tab: TabState, toolCallId: string, fallbackName: string):
 	if (tool?.diagram && status !== "error") {
 		body.append(renderDiagramCard(tool.diagram));
 		row.append(body);
-		header.classList.add("tool-toggle");
-		header.addEventListener("click", () => row.classList.toggle("tool-open"));
+		wireToggle();
 		return row;
 	}
 	const args = tool?.argsPreview ?? "";
 	if (args) body.append(el("pre", "tool-pre tool-args", args));
 	if (tool?.resultPreview) body.append(el("pre", "tool-pre tool-result", tool.resultPreview));
 	if (body.childElementCount > 0) {
-		header.classList.add("tool-toggle");
-		header.addEventListener("click", () => row.classList.toggle("tool-open"));
+		wireToggle();
 		row.append(body);
 	}
 	return row;
@@ -141,40 +172,18 @@ function renderCompactionItem(text: string): HTMLElement {
  * Composer "!" bash block: a terminal-style card — command header, streamed
  * output body, status footer. macOS/Linux run through the SDK's shell
  * (bash/zsh); Windows through cmd.exe — the executor owns that choice.
- * `expanded` is false for every finished card except the tab's newest one —
- * the header then toggles the body open (state kept per requestId in ChatView
- * so a manual expand survives re-renders). Running cards always stream open.
  */
 function renderBashItem(
 	tab: TabState,
-	item: Extract<ChatItem, { kind: "bash" }>,
-	expanded: boolean,
-	onToggle: (requestId: string, open: boolean) => void
+	item: Extract<ChatItem, { kind: "bash" }>
 ): HTMLElement {
-	const collapsible = !item.running;
-	// `expanded` is the effective state (newest card, or the user re-opened this
-	// one); bash-collapsed hides the output until the header toggle opens it.
-	const block = el("div", `bash-block${item.running ? " bash-running" : ""}${collapsible && !expanded ? " bash-collapsed" : ""}`);
+	const block = el("div", `bash-block${item.running ? " bash-running" : ""}`);
 
 	const header = el("div", "bash-header");
 	header.append(el("span", "bash-prompt", item.excludeFromContext ? "!!" : "!"));
 	header.append(el("span", "bash-command", item.command));
 	if (item.excludeFromContext) {
 		header.append(el("span", "bash-flag", "· not in context"));
-	}
-	if (collapsible) {
-		// The header is the toggle (tool-row parity); the footer with the exit
-		// status stays visible even while the output is folded.
-		header.classList.add("bash-toggle");
-		header.title = "Click to expand/collapse output";
-		const hint = el("span", "bash-fold-hint", expanded ? "▾" : "▸ folded");
-		header.append(hint);
-		header.addEventListener("click", () => {
-			const open = block.classList.toggle("bash-open");
-			block.classList.toggle("bash-collapsed", !open);
-			hint.textContent = open ? "▾" : "▸ folded";
-			onToggle(item.requestId, open);
-		});
 	}
 	if (item.running) {
 		header.append(el("span", "bash-hint", "running…"));
@@ -247,7 +256,13 @@ interface LatestThinking {
 	toggle: (node: HTMLDetailsElement, open: boolean) => void;
 }
 
-function renderAssistantBlocks(tab: TabState, content: ContentBlockDTO[], container: HTMLElement, thinking?: LatestThinking): void {
+function renderAssistantBlocks(
+	tab: TabState,
+	content: ContentBlockDTO[],
+	container: HTMLElement,
+	thinking?: LatestThinking,
+	toolFold?: ToolFold
+): void {
 	for (const [i, block] of content.entries()) {
 		switch (block.type) {
 			case "text": {
@@ -270,7 +285,10 @@ function renderAssistantBlocks(tab: TabState, content: ContentBlockDTO[], contai
 				break;
 			}
 			case "toolCall": {
-				container.append(renderToolRow(tab, block.id, block.name));
+				const status = toolCallStatus(tab, block.id);
+				container.append(
+					renderToolRow(tab, block.id, block.name, toolFold ? toolFold.isOpen(block.id, status) : false, toolFold?.onToggle)
+				);
 				break;
 			}
 			case "image":
@@ -280,10 +298,15 @@ function renderAssistantBlocks(tab: TabState, content: ContentBlockDTO[], contai
 	}
 }
 
-function renderAssistantItem(tab: TabState, message: ChatMessageDTO, thinking?: LatestThinking): HTMLElement {
+function renderAssistantItem(
+	tab: TabState,
+	message: ChatMessageDTO,
+	thinking?: LatestThinking,
+	toolFold?: ToolFold
+): HTMLElement {
 	const row = el("div", "msg msg-assistant");
 	const body = el("div", "msg-assistant-body");
-	renderAssistantBlocks(tab, assistantContent(message), body, thinking);
+	renderAssistantBlocks(tab, assistantContent(message), body, thinking, toolFold);
 	row.append(body);
 	if (message.errorMessage) row.append(el("div", "msg-error", message.errorMessage));
 	return row;
@@ -361,16 +384,26 @@ export class ChatView {
 	 * comes when the incoming message finalizes.
 	 */
 	private thinkingSlots = new Map<string, ThinkingSlot>();
-	/** Per-tab manual bash-card open/close overrides, keyed by requestId —
-	 *  survives the full re-renders that output chunks and chat events trigger. */
-	private bashFoldOverrides = new Map<string, Map<string, boolean>>();
+	/** Per-tab manual open/close overrides for agent bash tool rows, keyed by
+	 *  toolCallId — survives the full re-renders that chat events trigger. */
+	private toolFoldOverrides = new Map<string, Map<string, boolean>>();
 
-	/** Effective open state for a bash card: running and newest cards default
-	 *  open; a recorded manual toggle wins over the default. */
-	private bashExpanded(tab: TabState, item: Extract<ChatItem, { kind: "bash" }>, isNewest: boolean): boolean {
-		if (item.running) return true;
-		const override = this.bashFoldOverrides.get(tab.tabId)?.get(item.requestId);
-		return override ?? isNewest;
+	/** Fold policy handed to assistant renders: the tab's newest bash tool row
+	 *  opens by default, older ones stay folded; running rows never auto-open
+	 *  (their output streams into the chat anyway). Manual toggles persist. */
+	private toolFoldFor(tab: TabState, lastBashToolCallId: string | null): ToolFold {
+		return {
+			isOpen: (toolCallId, status) => {
+				if (status === "running") return false;
+				const override = this.toolFoldOverrides.get(tab.tabId)?.get(toolCallId);
+				return override ?? toolCallId === lastBashToolCallId;
+			},
+			onToggle: (toolCallId, open) => {
+				let overrides = this.toolFoldOverrides.get(tab.tabId);
+				if (!overrides) this.toolFoldOverrides.set(tab.tabId, (overrides = new Map()));
+				overrides.set(toolCallId, open);
+			}
+		};
 	}
 	/** The tab whose container currently owns the shared #chat scroll offset. */
 	private shownTabId?: string;
@@ -485,15 +518,44 @@ export class ChatView {
 			}
 			if (!openOn) this.releaseSlot(tab.tabId);
 		}
-		let lastBashIndex = -1;
+		// Newest agent bash tool row opens by default; every older one stays
+		// folded. Scan the transcript backwards (assistant toolCall blocks).
+		let lastBashToolCallId: string | null = null;
 		for (let i = tab.items.length - 1; i >= 0; i--) {
-			if (tab.items[i]?.kind === "bash") {
-				lastBashIndex = i;
-				break;
+			const item = tab.items[i];
+			if (item?.kind !== "assistant") continue;
+			const blocks = assistantContent(item.message);
+			for (let j = blocks.length - 1; j >= 0; j--) {
+				const b = blocks[j];
+				if (b?.type === "toolCall" && b.name === "bash") {
+					lastBashToolCallId = b.id;
+					break;
+				}
+			}
+			if (lastBashToolCallId) break;
+		}
+		// Prune manual tool-fold overrides whose tool calls left the transcript.
+		const toolOverrides = this.toolFoldOverrides.get(tab.tabId);
+		if (toolOverrides && toolOverrides.size > 0) {
+			const live = new Set<string>();
+			for (const item of tab.items) {
+				if (item.kind !== "assistant") continue;
+				for (const b of assistantContent(item.message)) {
+					if (b.type === "toolCall") live.add(b.id);
+				}
+			}
+			for (const id of [...toolOverrides.keys()]) {
+				if (!live.has(id)) toolOverrides.delete(id);
 			}
 		}
 		for (const [i, item] of tab.items.entries()) {
-			const row = this.renderItem(tab, item, i, lastBashIndex, openOn && openOn.item === i ? openOn.thinking : undefined);
+			const row = this.renderItem(
+				tab,
+				item,
+				i,
+				lastBashToolCallId,
+				openOn && openOn.item === i ? openOn.thinking : undefined
+			);
 			// Addressable row index for the in-session message search
 			// (message-search.ts): every transcript row carries its own index, so the
 			// search never has to assume anything about the pane's child order.
@@ -544,23 +606,18 @@ export class ChatView {
 		tab: TabState,
 		item: TabState["items"][number],
 		index: number,
-		lastBashIndex: number,
+		lastBashToolCallId: string | null,
 		thinking?: LatestThinking
 	): HTMLElement {
 		switch (item.kind) {
 			case "user":
 				return renderUserItem(item);
 			case "assistant":
-				return renderAssistantItem(tab, item.message, thinking);
+				return renderAssistantItem(tab, item.message, thinking, this.toolFoldFor(tab, lastBashToolCallId));
 			case "toolResult":
 				return renderToolResultItem(tab, item.message);
 			case "bash":
-				return renderBashItem(tab, item, this.bashExpanded(tab, item, lastBashIndex === index), (requestId, open) => {
-					// A manual toggle outranks the default (newest-open) on re-renders.
-					let overrides = this.bashFoldOverrides.get(tab.tabId);
-					if (!overrides) this.bashFoldOverrides.set(tab.tabId, (overrides = new Map()));
-					overrides.set(requestId, open);
-				});
+				return renderBashItem(tab, item);
 			case "compaction":
 				return renderCompactionItem(item.text);
 			case "notice":
@@ -608,7 +665,7 @@ export class ChatView {
 		this.containers.get(tabId)?.remove();
 		this.containers.delete(tabId);
 		this.thinkingSlots.delete(tabId);
-		this.bashFoldOverrides.delete(tabId);
+		this.toolFoldOverrides.delete(tabId);
 		this.scrollMemory.delete(tabId);
 		if (this.shownTabId === tabId) this.shownTabId = undefined;
 		if (this.streamNode && !this.streamNode.isConnected) this.streamNode = null;
