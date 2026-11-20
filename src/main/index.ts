@@ -5,6 +5,7 @@
 
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, shell } from "electron";
@@ -99,6 +100,18 @@ let mainWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
 /** Packages maintenance window (app menu → Packages…); independent of Settings. */
 let packagesWindow: BrowserWindow | null = null;
+/** About window (app menu → About Pi+); version info only, no IPC. */
+let aboutWindow: BrowserWindow | null = null;
+
+// pi-plus-sdk's own version, for the About form. The package exports its
+// package.json subpath; the desktop version comes from app.getVersion().
+const sdkVersion = (() => {
+	try {
+		return (createRequire(import.meta.url)("pi-plus-sdk/package.json") as { version?: string }).version ?? "unknown";
+	} catch {
+		return "unknown";
+	}
+})();
 
 // App icon: dist/assets (dev / plain build) or Resources/assets (packaged .app).
 function appIcon(): Electron.NativeImage | undefined {
@@ -256,6 +269,36 @@ function openPackagesWindow(): void {
 	packagesWindow.loadFile(path.join(__dirname, "renderer/packages.html"));
 	packagesWindow.on("closed", () => {
 		packagesWindow = null;
+	});
+}
+
+/** About window (app menu → About Pi+): a small version form, fed via the loadFile query. */
+function openAboutWindow(): void {
+	if (aboutWindow && !aboutWindow.isDestroyed()) {
+		aboutWindow.focus();
+		return;
+	}
+	aboutWindow = new BrowserWindow({
+		width: 420,
+		height: 280,
+		resizable: false,
+		maximizable: false,
+		title: "About Pi+",
+		icon: appIcon(),
+		webPreferences,
+	});
+	stripWindowMenu(aboutWindow);
+	guardNavigation(aboutWindow);
+	aboutWindow.loadFile(path.join(__dirname, "renderer/about.html"), {
+		query: {
+			desktop: app.getVersion(),
+			sdk: sdkVersion,
+			electron: process.versions.electron ?? "",
+			node: process.versions.node,
+		},
+	});
+	aboutWindow.on("closed", () => {
+		aboutWindow = null;
 	});
 }
 
@@ -601,6 +644,7 @@ app.whenReady().then(() => {
 	buildApplicationMenu(
 		() => openSettingsWindow(),
 		() => openPackagesWindow(),
+		() => openAboutWindow(),
 		() => (mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : undefined),
 	);
 	// Unpackaged runs get a generic Electron Dock icon; replace it with ours.

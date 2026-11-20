@@ -13,6 +13,7 @@ const isMac = process.platform === "darwin";
 export function buildApplicationMenu(
 	openSettings: () => void,
 	openPackages: () => void,
+	openAbout: () => void,
 	getActionTarget: () => WebContents | undefined,
 ): void {
 	const send = (action: MenuActionDTO): void => {
@@ -27,7 +28,8 @@ export function buildApplicationMenu(
 					{
 						label: "Pi+",
 						submenu: [
-							{ role: "about" },
+							// Custom About (not the role's native panel) so the SDK version can be shown too.
+						{ label: "About Pi+", click: () => openAbout() },
 							{ type: "separator" },
 							{ label: "Settings…", accelerator: "Command+,", click: () => openSettings() },
 						{ label: "Packages…", accelerator: "CmdOrCtrl+Shift+P", click: () => openPackages() },
@@ -69,6 +71,8 @@ export function buildApplicationMenu(
 					? ([
 						{ label: "Settings", accelerator: "CmdOrCtrl+,", click: () => openSettings() },
 						{ label: "Packages", accelerator: "CmdOrCtrl+Shift+P", click: () => openPackages() },
+						{ type: "separator" },
+						{ label: "About Pi+", click: () => openAbout() },
 					] as MenuItemConstructorOptions[])
 				: []),
 				{ type: "separator" },
