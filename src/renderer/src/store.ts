@@ -142,6 +142,77 @@ function capBashOutput(text: string): string {
 	return `…[${text.length - BASH_OUTPUT_CAP} bytes above dropped]…\n` + text.slice(-BASH_OUTPUT_CAP);
 }
 
+/** Card cap for a finalized tool result: the expanded row shows the full
+ *  output (the old standalone result row did), head-capped only for
+ *  pathological sizes. */
+const TOOL_RESULT_CARD_CAP = 256 * 1024;
+function capToolResultCard(text: string): string {
+	if (text.length <= TOOL_RESULT_CARD_CAP) return text;
+	return `${text.slice(0, TOOL_RESULT_CARD_CAP)}… [truncated ${text.length - TOOL_RESULT_CARD_CAP} chars]`;
+}
+
+const TOOL_PREVIEW_LIMIT = 4096;
+function truncatePreview(text: string): string {
+	if (text.length <= TOOL_PREVIEW_LIMIT) return text;
+	return `${text.slice(0, TOOL_PREVIEW_LIMIT)}… [truncated ${text.length - TOOL_PREVIEW_LIMIT} chars]`;
+}
+
+/** Args preview for a rebuilt tool card — mirrors the main-side previewArgs
+ *  in session-sanitize.ts: bash-style tools show the raw command instead of
+ *  the JSON envelope. */
+function previewArgsForCard(args: unknown): string {
+	if (args && typeof args === "object" && !Array.isArray(args)) {
+		const a = args as Record<string, unknown>;
+		if (typeof a.command === "string" && a.command.trim() !== "") {
+			const timeout = typeof a.timeout === "number" ? `  [timeout ${a.timeout}s]` : "";
+			return truncatePreview(a.command + timeout);
+		}
+	}
+	let text: string;
+	try {
+		text = JSON.stringify(args) ?? "";
+	} catch {
+		text = String(args);
+	}
+	return truncatePreview(text);
+}
+
+/** Human-readable text of a toolResult message (content blocks → text). */
+function toolResultText(message: ChatMessageDTO): string {
+	return textOfContent(message.content);
+}
+
+/** Rebuild a tab's tool cards from its loaded transcript. Live runs populate
+ *  tab.tools from tool_execution_* events; a resumed transcript only carries
+ *  messages, so without this every resumed tool row would fall back to
+ *  "running…" with no command/output. The separate toolResult row is
+ *  suppressed for carded results (chat-view.ts), so the card must carry
+ *  everything: status, args preview and the full result text. */
+function rebuildToolBlocks(tab: TabState): void {
+	const argsById = new Map<string, unknown>();
+	for (const item of tab.items) {
+		if (item.kind !== "assistant" || typeof item.message.content === "string") continue;
+		for (const block of item.message.content) {
+			if (block.type === "toolCall" && block.id) argsById.set(block.id, block.arguments);
+		}
+	}
+	for (const item of tab.items) {
+		if (item.kind !== "toolResult") continue;
+		const message = item.message;
+		const toolCallId = message.toolCallId;
+		if (!toolCallId) continue;
+		const text = toolResultText(message);
+		tab.tools.set(toolCallId, {
+			toolCallId,
+			name: message.toolName ?? "tool",
+			argsPreview: previewArgsForCard(argsById.get(toolCallId)),
+			status: message.isError ? "error" : "done",
+			...(text.trim() ? { resultPreview: capToolResultCard(text) } : {}),
+			...(message.diagram ? { diagram: message.diagram } : {}),
+		});
+	}
+}
+
 function textOfContent(content: ChatMessageDTO["content"]): string {
 	if (typeof content === "string") return content;
 	return content
@@ -281,6 +352,7 @@ class Store {
 		if (result.modelFallbackMessage) {
 			tab.items.push({ kind: "notice", text: result.modelFallbackMessage });
 		}
+		rebuildToolBlocks(tab);
 		this.emit({ type: "meta", tabId: tab.tabId });
 		this.emit({ type: "chat", tabId: tab.tabId });
 	}
@@ -318,6 +390,7 @@ class Store {
 		if (result.modelFallbackMessage) {
 			tab.items.push({ kind: "notice", text: result.modelFallbackMessage });
 		}
+		rebuildToolBlocks(tab);
 		this.emit({ type: "meta", tabId });
 		this.emit({ type: "chat", tabId });
 		this.emit({ type: "tabs" }); // label may derive from the first message
@@ -495,6 +568,18 @@ class Store {
 					tab.items.push(...messageToItems(event.message));
 				} else {
 					this.promoteQueued(tab, event.message);
+				}
+				if (event.message.role === "toolResult") {
+					// The card preview from tool_execution_end is capped (4096); the
+					// finalized message carries the full result, so the expanded card
+					// can show it — the standalone result row is suppressed for bash.
+					const tool = tab.tools.get(event.message.toolCallId ?? "");
+					if (tool) {
+						tool.status = event.message.isError ? "error" : "done";
+						const text = toolResultText(event.message);
+						if (text.trim()) tool.resultPreview = capToolResultCard(text);
+						if (event.message.diagram) tool.diagram = event.message.diagram;
+					}
 				}
 				this.finalizeStream(tab);
 				this.emit({ type: "chat", tabId }); // finalized message must hit the item list

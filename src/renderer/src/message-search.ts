@@ -27,6 +27,7 @@
 import type { ChatMessageDTO, ContentBlockDTO } from "../../shared/ipc-types.ts";
 import { notify } from "./dialogs.ts";
 import { store, type ChatItem, type TabState } from "./store.ts";
+import { isCardedBashResult } from "./chat-view.ts";
 
 /** Cap on collected matches so a 5k-message transcript stays responsive while
  *  typing; the counter shows "500+" when hit. */
@@ -101,13 +102,17 @@ function messageText(message: ChatMessageDTO): string {
 	return parts.join("\n");
 }
 
-/** Everything the query is matched against for one transcript row. */
-export function searchableText(item: ChatItem): string {
+/** Everything the query is matched against for one transcript row.
+ *  Carded bash toolResults render no row of their own (their output lives in
+ *  the tool-call card), so they contribute no searchable text — a match
+ *  there would light up a row that doesn't exist. */
+export function searchableText(item: ChatItem, tab?: TabState): string {
 	switch (item.kind) {
 		case "user":
 			return item.attachments?.length ? `${item.text}\n${item.attachments.join("\n")}` : item.text;
 		case "assistant":
 		case "toolResult":
+			if (tab && isCardedBashResult(tab, item)) return "";
 			return messageText(item.message);
 		case "bash": {
 			const parts = [item.command, item.output];
@@ -365,7 +370,7 @@ export class MessageSearch {
 			const fp = fingerprint(item);
 			let hit = this.textCache.get(item);
 			if (!hit || hit.fp !== fp) {
-				hit = { fp, text: searchableText(item).toLowerCase() };
+				hit = { fp, text: searchableText(item, tab).toLowerCase() };
 				this.textCache.set(item, hit);
 			}
 			texts.push(hit.text);

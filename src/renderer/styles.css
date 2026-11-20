@@ -942,6 +942,14 @@ body {
 	background: var(--bg-hover);
 }
 
+/* Fold-state chevron at the right of a toggleable tool-row header. */
+.tool-fold-hint {
+	margin-left: auto;
+	color: var(--text-dim);
+	font-size: 11px;
+	flex: 0 0 auto;
+}
+
 .tool-running .tool-icon {
 	color: var(--warn);
 }

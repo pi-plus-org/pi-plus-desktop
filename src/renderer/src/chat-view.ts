@@ -38,6 +38,21 @@ function toolCallStatus(tab: TabState, toolCallId: string): string {
 	return toolBlockFor(tab, toolCallId)?.status ?? "running";
 }
 
+/** A bash toolResult whose content already lives in its tool-call card
+ *  (command + full output when expanded). Rendering the transcript's
+ *  standalone result row too would duplicate the card, so renderTab skips
+ *  it. The card must actually exist: the matching toolCall block is in the
+ *  assistant item, and tab.tools carries the block (live run or rebuilt
+ *  transcript) — otherwise the row renders as before. */
+export function isCardedBashResult(tab: TabState, item: ChatItem): boolean {
+	return (
+		item.kind === "toolResult" &&
+		item.message.toolName === "bash" &&
+		!!item.message.toolCallId &&
+		tab.tools.has(item.message.toolCallId)
+	);
+}
+
 /**
  * Tool-call row: header (icon + name + status) toggle-open. `openByDefault`
  * keeps the tab's newest bash result expanded; `onToggle` records manual
@@ -60,10 +75,17 @@ function renderToolRow(
 	header.append(el("span", "tool-name", name));
 	header.append(el("span", "tool-status", status === "running" ? "running…" : status));
 	row.append(header);
+	// The row folds by default; the header is the toggle. A chevron in the
+	// header advertises the fold state — without it a folded row just looks
+	// like a one-line summary with no affordance.
+	let hint: HTMLElement | null = null;
 	const wireToggle = () => {
 		header.classList.add("tool-toggle");
+		hint = el("span", "tool-fold-hint", row.classList.contains("tool-open") ? "▾" : "▸");
+		header.append(hint);
 		header.addEventListener("click", () => {
 			const open = row.classList.toggle("tool-open");
+			if (hint) hint.textContent = open ? "▾" : "▸";
 			onToggle?.(toolCallId, open);
 		});
 	};
@@ -549,6 +571,9 @@ export class ChatView {
 			}
 		}
 		for (const [i, item] of tab.items.entries()) {
+			// A bash toolResult's content renders inside its tool-call card;
+			// a separate row below it would just repeat the output.
+			if (isCardedBashResult(tab, item)) continue;
 			const row = this.renderItem(
 				tab,
 				item,
@@ -615,6 +640,14 @@ export class ChatView {
 			case "assistant":
 				return renderAssistantItem(tab, item.message, thinking, this.toolFoldFor(tab, lastBashToolCallId));
 			case "toolResult":
+				// Carded tools already show their result inside the expandable tool
+				// row — store.ts seeds that card from the transcript (rebuildToolBlocks)
+				// and upgrades it with the full result text on message_end, so a
+				// standalone result row here would just duplicate the card's body.
+				// Orphan results (no matching toolCall in the transcript) still render.
+				if (item.message.toolCallId && toolBlockFor(tab, item.message.toolCallId)) {
+					return el("div", "msg-toolresult-suppressed");
+				}
 				return renderToolResultItem(tab, item.message);
 			case "bash":
 				return renderBashItem(tab, item);
