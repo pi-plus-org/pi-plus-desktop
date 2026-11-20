@@ -10,7 +10,7 @@
  * browser drags) are persisted via `attachment:save` and attach by path.
  * An "@"-triggered file/folder picker menu rooted at the active tab's cwd
  * inserts an inline @path reference *and* adds an attachment chip; a
- * line-initial "/" opens the slash-command menu (extension commands, prompt
+ * "/" at the start of any word opens the slash-command menu (extension commands, prompt
  * templates and skills — the session-executable set — plus the "/compact"
  * builtin, which submit() intercepts like the pi TUI and never sends).
  * With the menus closed, ArrowUp at the start of the draft walks back through
@@ -99,16 +99,22 @@ function findAtToken(value: string, caret: number): { atStart: number; raw: stri
 		const before = i === 0 ? "" : value[i - 1];
 		// "foo@bar" is an email, not a mention — keep scanning left.
 		if (before && !/\s/.test(before)) continue;
-		return { atStart: i, raw: value.slice(i + 1, caret) };
+		const raw = value.slice(i + 1, caret);
+		// Whitespace inside the token means the mention ended (an inserted
+		// "@path " trailing space, or prose like "hi @bob there") — reject
+		// synchronously so the menu never flashes open on the next keystroke.
+		if (/\s/.test(raw)) return null;
+		return { atStart: i, raw };
 	}
 	return null;
 }
 
-/** A "/" command token at the caret (must start at the beginning of a line). */
+/** A "/" command token at the caret — the word under the caret may sit
+ *  anywhere in the prompt ("please run /compact now"), not just at a line
+ *  start; any word beginning with "/" opens the menu. */
 function findSlashToken(value: string, caret: number): { slashStart: number; raw: string } | null {
 	let i = caret;
 	while (i > 0 && !/\s/.test(value[i - 1] ?? "")) i--;
-	if (i > 0 && value[i - 1] !== "\n") return null;
 	const token = value.slice(i, caret);
 	return token.startsWith("/") ? { slashStart: i, raw: token } : null;
 }
