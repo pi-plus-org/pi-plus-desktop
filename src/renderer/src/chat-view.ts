@@ -141,15 +141,40 @@ function renderCompactionItem(text: string): HTMLElement {
  * Composer "!" bash block: a terminal-style card — command header, streamed
  * output body, status footer. macOS/Linux run through the SDK's shell
  * (bash/zsh); Windows through cmd.exe — the executor owns that choice.
+ * `expanded` is false for every finished card except the tab's newest one —
+ * the header then toggles the body open (state kept per requestId in ChatView
+ * so a manual expand survives re-renders). Running cards always stream open.
  */
-function renderBashItem(tab: TabState, item: Extract<ChatItem, { kind: "bash" }>): HTMLElement {
-	const block = el("div", `bash-block${item.running ? " bash-running" : ""}`);
+function renderBashItem(
+	tab: TabState,
+	item: Extract<ChatItem, { kind: "bash" }>,
+	expanded: boolean,
+	onToggle: (requestId: string, open: boolean) => void
+): HTMLElement {
+	const collapsible = !item.running;
+	// `expanded` is the effective state (newest card, or the user re-opened this
+	// one); bash-collapsed hides the output until the header toggle opens it.
+	const block = el("div", `bash-block${item.running ? " bash-running" : ""}${collapsible && !expanded ? " bash-collapsed" : ""}`);
 
 	const header = el("div", "bash-header");
 	header.append(el("span", "bash-prompt", item.excludeFromContext ? "!!" : "!"));
 	header.append(el("span", "bash-command", item.command));
 	if (item.excludeFromContext) {
 		header.append(el("span", "bash-flag", "· not in context"));
+	}
+	if (collapsible) {
+		// The header is the toggle (tool-row parity); the footer with the exit
+		// status stays visible even while the output is folded.
+		header.classList.add("bash-toggle");
+		header.title = "Click to expand/collapse output";
+		const hint = el("span", "bash-fold-hint", expanded ? "▾" : "▸ folded");
+		header.append(hint);
+		header.addEventListener("click", () => {
+			const open = block.classList.toggle("bash-open");
+			block.classList.toggle("bash-collapsed", !open);
+			hint.textContent = open ? "▾" : "▸ folded";
+			onToggle(item.requestId, open);
+		});
 	}
 	if (item.running) {
 		header.append(el("span", "bash-hint", "running…"));
@@ -336,6 +361,17 @@ export class ChatView {
 	 * comes when the incoming message finalizes.
 	 */
 	private thinkingSlots = new Map<string, ThinkingSlot>();
+	/** Per-tab manual bash-card open/close overrides, keyed by requestId —
+	 *  survives the full re-renders that output chunks and chat events trigger. */
+	private bashFoldOverrides = new Map<string, Map<string, boolean>>();
+
+	/** Effective open state for a bash card: running and newest cards default
+	 *  open; a recorded manual toggle wins over the default. */
+	private bashExpanded(tab: TabState, item: Extract<ChatItem, { kind: "bash" }>, isNewest: boolean): boolean {
+		if (item.running) return true;
+		const override = this.bashFoldOverrides.get(tab.tabId)?.get(item.requestId);
+		return override ?? isNewest;
+	}
 	/** The tab whose container currently owns the shared #chat scroll offset. */
 	private shownTabId?: string;
 	/**
@@ -449,8 +485,15 @@ export class ChatView {
 			}
 			if (!openOn) this.releaseSlot(tab.tabId);
 		}
+		let lastBashIndex = -1;
+		for (let i = tab.items.length - 1; i >= 0; i--) {
+			if (tab.items[i]?.kind === "bash") {
+				lastBashIndex = i;
+				break;
+			}
+		}
 		for (const [i, item] of tab.items.entries()) {
-			const row = this.renderItem(tab, item, openOn && openOn.item === i ? openOn.thinking : undefined);
+			const row = this.renderItem(tab, item, i, lastBashIndex, openOn && openOn.item === i ? openOn.thinking : undefined);
 			// Addressable row index for the in-session message search
 			// (message-search.ts): every transcript row carries its own index, so the
 			// search never has to assume anything about the pane's child order.
@@ -497,7 +540,13 @@ export class ChatView {
 		this.thinkingSlots.delete(tabId);
 	}
 
-	private renderItem(tab: TabState, item: TabState["items"][number], thinking?: LatestThinking): HTMLElement {
+	private renderItem(
+		tab: TabState,
+		item: TabState["items"][number],
+		index: number,
+		lastBashIndex: number,
+		thinking?: LatestThinking
+	): HTMLElement {
 		switch (item.kind) {
 			case "user":
 				return renderUserItem(item);
@@ -506,7 +555,12 @@ export class ChatView {
 			case "toolResult":
 				return renderToolResultItem(tab, item.message);
 			case "bash":
-				return renderBashItem(tab, item);
+				return renderBashItem(tab, item, this.bashExpanded(tab, item, lastBashIndex === index), (requestId, open) => {
+					// A manual toggle outranks the default (newest-open) on re-renders.
+					let overrides = this.bashFoldOverrides.get(tab.tabId);
+					if (!overrides) this.bashFoldOverrides.set(tab.tabId, (overrides = new Map()));
+					overrides.set(requestId, open);
+				});
 			case "compaction":
 				return renderCompactionItem(item.text);
 			case "notice":
@@ -554,6 +608,7 @@ export class ChatView {
 		this.containers.get(tabId)?.remove();
 		this.containers.delete(tabId);
 		this.thinkingSlots.delete(tabId);
+		this.bashFoldOverrides.delete(tabId);
 		this.scrollMemory.delete(tabId);
 		if (this.shownTabId === tabId) this.shownTabId = undefined;
 		if (this.streamNode && !this.streamNode.isConnected) this.streamNode = null;
