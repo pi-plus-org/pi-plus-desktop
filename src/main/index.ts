@@ -150,12 +150,20 @@ const mcpStore = new McpStore((profile) => profileStore.resolveAgentDir(profile 
 // A successful package install/remove/update only affects sessions created
 // afterwards (extensions load/bind at session creation), so the main window
 // (which owns the tabs) is notified and offers to restart its open sessions.
-// With tabs present the window is surfaced so the confirm dialog is seen.
+// With tabs present the window is surfaced so the confirm dialog is seen —
+// but never while the user is working in a sub window (Settings/Packages):
+// the operation just finished *there*, and yanking the main window forward
+// would steal the focus mid-task. The restart offer waits for the next visit.
 packageStore.onChanged = () => {
 	for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IPC.push.packagesChanged);
 	if (sessionHost.tabCount > 0 && mainWindow && !mainWindow.isDestroyed()) {
-		mainWindow.show();
-		mainWindow.focus();
+		const subWindowFocused = BrowserWindow.getAllWindows().some(
+			(win) => win !== mainWindow && !win.isDestroyed() && win.isFocused(),
+		);
+		if (!subWindowFocused) {
+			mainWindow.show();
+			mainWindow.focus();
+		}
 	}
 };
 
