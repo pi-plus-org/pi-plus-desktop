@@ -8,7 +8,7 @@ import { isImagePath } from "../../shared/attachments.ts";
 import type { ChatMessageDTO, ContentBlockDTO } from "../../shared/ipc-types.ts";
 import { thumbSrc } from "./image-thumb.ts";
 import { renderDiffView, renderAddedFile } from "./diff-view.ts";
-import { renderDiagramCard } from "./diagram-view.ts";
+import { renderDiagramEmbed } from "./diagram-view.ts";
 import { renderMarkdownToHtml, enhanceCodeBlocks, escapeHtml } from "./markdown.ts";
 import { notify } from "./dialogs.ts";
 import { store, type ChatItem, type TabState, type ToolBlock } from "./store.ts";
@@ -91,14 +91,6 @@ function renderToolRow(
 	};
 
 	const body = el("div", "tool-body");
-	// draw_diagram finished: the card replaces both raw previews — its SVG/ASCII
-	// view is the diagram, the JSON args would only repeat what it shows.
-	if (tool?.diagram && status !== "error") {
-		body.append(renderDiagramCard(tool.diagram));
-		row.append(body);
-		wireToggle();
-		return row;
-	}
 	const args = tool?.argsPreview ?? "";
 	if (args) body.append(el("pre", "tool-pre tool-args", args));
 	if (tool?.resultPreview) body.append(el("pre", "tool-pre tool-result", tool.resultPreview));
@@ -261,10 +253,10 @@ function lastThinkingIndex(blocks: ContentBlockDTO[]): number {
 
 /**
  * Agent work blocks the "Blocks" toggle hides: thinking plus the bash / read /
- * edit tool activity. Everything else (text, other tools, user-visible rows)
- * stays on screen so the transcript still reads as a conversation.
+ * edit / write tool activity. Everything else (text, other tools, user-visible
+ * rows) stays on screen so the transcript still reads as a conversation.
  */
-const HIDEABLE_TOOLS = new Set(["bash", "read", "edit"]);
+const HIDEABLE_TOOLS = new Set(["bash", "read", "edit", "write"]);
 
 /** Row shown in place of hidden work blocks while a turn is streaming. */
 function renderRunningIndicator(): HTMLElement {
@@ -329,6 +321,13 @@ function renderAssistantBlocks(
 			}
 			case "toolCall": {
 				const status = toolCallStatus(tab, block.id);
+				// A finished draw_diagram renders as a figure inline in the response,
+				// not as a tool card; while it runs the plain tool row shows instead.
+				const tool = toolBlockFor(tab, block.id);
+				if (tool?.diagram && status !== "error") {
+					container.append(renderDiagramEmbed(tool.diagram));
+					break;
+				}
 				container.append(
 					renderToolRow(tab, block.id, block.name, toolFold ? toolFold.isOpen(block.id, status) : false, toolFold?.onToggle)
 				);
@@ -395,10 +394,10 @@ function renderToolResultItem(tab: TabState, message: ChatMessageDTO): HTMLEleme
 		row.append(renderAddedFile(args.content));
 		return row;
 	}
-	// Resumed draw_diagram transcript: same visual card as the live row.
+	// Resumed draw_diagram transcript without the assistant toolCall alongside:
+	// same inline figure as the live path.
 	if (!message.isError && message.diagram) {
-		row.append(el("div", "toolresult-label", `⛁ ${message.diagram.title || "draw_diagram"}`));
-		row.append(renderDiagramCard(message.diagram));
+		row.append(renderDiagramEmbed(message.diagram));
 		return row;
 	}
 	const label = el("div", "toolresult-label", `${message.isError ? "✗" : "✓"} ${name}`);
@@ -673,8 +672,8 @@ export class ChatView {
 				if (item.message.toolCallId && toolBlockFor(tab, item.message.toolCallId)) {
 					return el("div", "msg-toolresult-suppressed");
 				}
-				// Hidden work blocks: read/edit results (diff cards, file contents)
-				// go away with their tool cards.
+				// Hidden work blocks: read/edit/write results (diff cards, file
+				// contents) go away with their tool cards.
 				if (!tab.showBlocks && item.message.toolName && HIDEABLE_TOOLS.has(item.message.toolName)) {
 					return el("div", "msg-toolresult-suppressed");
 				}

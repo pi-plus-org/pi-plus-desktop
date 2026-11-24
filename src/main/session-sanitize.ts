@@ -22,7 +22,7 @@ const SNAPSHOT_MESSAGE_LIMIT = 500;
 /**
  * SVG renderer injected by session-host once the SDK is loaded (this module
  * cannot statically import pi-plus-sdk — the bundler hoists it above the
- * sdk-shim). Undefined until wired: diagram cards then ride with ASCII only.
+ * sdk-shim). Undefined until wired: embeds then ride with ASCII only.
  */
 let diagramSvgRenderer: ((spec: unknown) => string) | undefined;
 export function setDiagramSvgRenderer(fn: (spec: never) => string): void {
@@ -30,10 +30,11 @@ export function setDiagramSvgRenderer(fn: (spec: never) => string): void {
 }
 
 /**
- * Lift a draw_diagram result's `details` ({spec, ascii, htmlPath}) into a
- * display card. The layout is recomputed to inline SVG so the chat shows a
- * visual diagram; the ASCII stays as the fallback for when no renderer is
- * wired or the spec fails to lay out (truncated/legacy transcripts).
+ * Lift a draw_diagram result's `details` ({spec, ascii, htmlPath}) into an
+ * embeddable figure payload. The layout is recomputed to inline SVG so the
+ * chat shows a visual diagram; the ASCII stays as the fallback for when no
+ * renderer is wired or the spec fails to lay out (truncated/legacy
+ * transcripts).
  */
 function diagramCardFromDetails(details: unknown): DiagramCardDTO | undefined {
 	if (!details || typeof details !== "object") return undefined;

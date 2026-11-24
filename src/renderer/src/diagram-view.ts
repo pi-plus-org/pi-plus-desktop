@@ -1,58 +1,51 @@
-/**
- * Diagram card: renders a draw_diagram tool result as a visual card — the
- * SDK-computed inline SVG (falling back to the tool's own box-drawing ASCII),
- * a counts header, the ASCII behind a fold, and an "Open HTML" button when the
- * tool wrote a standalone page. Fed by DiagramCardDTO, which main lifts from
- * the tool result's `details` (session-sanitize), so both the live tool row
- * and a resumed transcript render identically.
- */
+// Visual renderer for the SDK's hidden `pi-plus-diagram` factory results
+// (see `session-sanitize.ts` — the tool result's `details` are lifted into a
+// `DiagramCardDTO` on both the live event and the resumed-transcript DTO).
+//
+// The diagram is rendered as an inline figure embedded in the assistant's
+// response (not a tool card): the SDK-computed SVG is the body, with a small
+// caption (title + Open-HTML link) underneath. When no SVG renderer is wired
+// (or layout failed main-side) the tool's own ASCII fills the frame instead —
+// same layout engine, so the two never disagree.
 
-import type { DiagramCardDTO } from "../../shared/ipc-types.ts";
-import { notify } from "./dialogs.ts";
+import type { DiagramCardDTO } from "../../shared/ipc-types.js";
 
-function el(tag: string, className?: string, text?: string): HTMLElement {
+function el(tag: string, className: string, text?: string): HTMLElement {
 	const node = document.createElement(tag);
 	if (className) node.className = className;
 	if (text !== undefined) node.textContent = text;
 	return node;
 }
 
-export function renderDiagramCard(diagram: DiagramCardDTO): HTMLElement {
-	const card = el("div", "diagram-card");
-
-	const counts = `${String(diagram.nodeCount)} nodes, ${String(diagram.edgeCount)} edges`;
-	const head = el("div", "diagram-head");
-	head.append(el("span", "diagram-title", `⛁ ${diagram.title || "Diagram"}`));
-	head.append(el("span", "diagram-counts", counts));
-	if (diagram.htmlPath) {
-		const btn = el("button", "diagram-open", "Open HTML ↗");
-		btn.title = diagram.htmlPath;
-		btn.addEventListener("click", () => {
-			void window.pi.openPath(diagram.htmlPath!).then((error) => {
-				if (error) notify(`Open failed: ${error}`, "error");
-			});
-		});
-		head.append(btn);
-	}
-	card.append(head);
-
-	// Visual body: the SDK layout's SVG when available (it shares geometry with
-	// the ASCII, so the two views never disagree), otherwise the ASCII itself.
+export function renderDiagramEmbed(diagram: DiagramCardDTO): HTMLElement {
+	const figure = el("figure", "diagram-embed");
 	if (diagram.svg) {
-		const figure = el("div", "diagram-svg");
-		// The SVG is SDK-generated markup with every spec label html-escaped at
-		// the source (diagram/html.ts esc()); it carries no scripts.
-		figure.innerHTML = diagram.svg;
-		card.append(figure);
+		const frame = el("div", "diagram-embed-frame");
+		frame.innerHTML = diagram.svg;
+		figure.append(frame);
 	} else {
-		card.append(el("pre", "diagram-ascii diagram-svg", diagram.ascii));
+		const pre = el("pre", "diagram-ascii diagram-embed-frame");
+		pre.textContent = diagram.ascii;
+		figure.append(pre);
 	}
-
-	// The ASCII stays reachable — it is exactly what the model saw.
-	const fold = el("details", "diagram-ascii-fold");
-	fold.append(el("summary", undefined, "ASCII"));
-	fold.append(el("pre", "diagram-ascii", diagram.ascii));
-	card.append(fold);
-
-	return card;
+	if (diagram.title || diagram.htmlPath) {
+		const cap = el("figcaption", "diagram-embed-cap");
+		if (diagram.title) cap.append(el("span", "diagram-embed-title", `⛁ ${diagram.title}`));
+		if (diagram.htmlPath) {
+			const open = el("button", "diagram-open", "Open HTML ↗") as HTMLButtonElement;
+			open.type = "button";
+			open.title = diagram.htmlPath;
+			open.addEventListener("click", async () => {
+				try {
+					const err = await window.pi.openPath(diagram.htmlPath!);
+					if (err) window.dispatchEvent(new CustomEvent("pi:notify", { detail: err }));
+				} catch (e) {
+					window.dispatchEvent(new CustomEvent("pi:notify", { detail: String(e) }));
+				}
+			});
+			cap.append(open);
+		}
+		figure.append(cap);
+	}
+	return figure;
 }

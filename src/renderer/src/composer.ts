@@ -365,9 +365,9 @@ export class Composer {
 		spacer.className = "toolbar-spacer";
 		this.skillsBtn = this.chipButton("⌘ Skills", "Insert a /skill invocation", () => this.toggleSkills());
 		this.compactBtn = this.chipButton("⤓ Compact", "Compact the context now", () => void this.onCompact().catch((err) => this.showError(err)));
-		// Agent work-block visibility: thinking / bash / read / edit rows. Hidden
-		// blocks are replaced by a "Running…" spinner while a turn streams.
-		this.blocksBtn = this.chipButton("◫ Blocks", "Show or hide thinking / bash / read / edit blocks in the chat", () => this.toggleBlocks());
+		// Agent work-block visibility: thinking / bash / read / edit / write rows.
+		// Hidden blocks are replaced by a "Running…" spinner while a turn streams.
+		this.blocksBtn = this.chipButton("◫ Blocks", "Show or hide thinking / bash / read / edit / write blocks in the chat", () => this.toggleBlocks());
 		// Steer status: shows the send mode for the next message (click toggles)
 		// and the pending queue count; clear appears when messages are queued.
 		this.queueChip = this.chipButton("⇢", "Queue status", () => {
@@ -1477,8 +1477,8 @@ export class Composer {
 		const blocksHidden = active ? !active.showBlocks : false;
 		this.blocksBtn.textContent = blocksHidden ? "◪ Blocks hidden" : "◫ Blocks";
 		this.blocksBtn.title = blocksHidden
-			? "Thinking / bash / read / edit blocks are hidden — click to show them"
-			: "Hide thinking / bash / read / edit blocks (a spinner shows while the agent runs)";
+			? "Thinking / bash / read / edit / write blocks are hidden — click to show them"
+			: "Hide thinking / bash / read / edit / write blocks (a spinner shows while the agent runs)";
 		this.blocksBtn.classList.toggle("composer-chip-off", blocksHidden);
 		this.blocksBtn.disabled = !active;
 		const usage = active?.meta?.contextUsage;

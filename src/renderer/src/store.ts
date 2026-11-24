@@ -27,7 +27,7 @@ export interface ToolBlock {
 	argsPreview: string;
 	status: "running" | "done" | "error";
 	resultPreview?: string;
-	/** draw_diagram result card (from tool_execution_end.diagram): the row
+	/** draw_diagram result figure (from tool_execution_end.diagram): the row
 	 *  renders the visual card instead of the JSON/ASCII previews. */
 	diagram?: DiagramCardDTO;
 }
@@ -87,8 +87,8 @@ export interface TabState {
 	ready: boolean;
 	streaming: boolean;
 	compacting: boolean;
-	/** Show the agent's work blocks (thinking / bash / read / edit) in the chat;
-	 *  false collapses the transcript to the conversation and shows a
+	/** Show the agent's work blocks (thinking / bash / read / edit / write) in
+	 *  the chat; false collapses the transcript to the conversation and shows a
 	 *  "Running…" spinner while a turn is in flight. */
 	showBlocks: boolean;
 	/** Latest main-pushed session snapshot (model, usage, persisted...). */
