@@ -214,15 +214,21 @@ function guardNavigation(win: BrowserWindow): void {
 }
 
 /** Right-click menu, installed on every window: Copy for the current selection
- *  (plus the edit basics inside text fields and Copy Link Address on anchors).
- *  No renderer handles contextmenu, so without this a right-click is a no-op.
- *  Dev builds also get Inspect Element at the click point. */
+ *  (plus the edit basics inside editable fields and Copy Link Address on
+ *  anchors). No renderer handles contextmenu, so without this a right-click
+ *  is a no-op. Editability is read from `isEditable`/canCut/canPaste — never
+ *  canSelectAll, which Chromium reports true on read-only text too, and a
+ *  document-wide Select All is never offered outside a field. Dev builds also
+ *  get Inspect Element at the click point. */
 function installContextMenu(win: BrowserWindow): void {
 	win.webContents.on("context-menu", (_e, params) => {
 		const items: MenuItemConstructorOptions[] = [];
 		const { editFlags } = params;
-		if (editFlags.canCut || editFlags.canPaste || editFlags.canSelectAll) {
-			// Editable field: offer the standard editing roles.
+		// Editability must NOT be inferred from canSelectAll — Chromium reports it
+		// true on nearly every surface, which would put Cut/Paste/Select All on
+		// read-only text (where Select All would grab the whole document).
+		const editable = params.isEditable || editFlags.canCut || editFlags.canPaste;
+		if (editable) {
 			items.push(
 				{ label: "Cut", role: "cut", enabled: editFlags.canCut },
 				{ label: "Copy", role: "copy", enabled: editFlags.canCopy },
