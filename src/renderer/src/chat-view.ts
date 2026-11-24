@@ -259,6 +259,20 @@ function lastThinkingIndex(blocks: ContentBlockDTO[]): number {
 	return -1;
 }
 
+/**
+ * Agent work blocks the "Blocks" toggle hides: thinking plus the bash / read /
+ * edit tool activity. Everything else (text, other tools, user-visible rows)
+ * stays on screen so the transcript still reads as a conversation.
+ */
+const HIDEABLE_TOOLS = new Set(["bash", "read", "edit"]);
+
+/** Row shown in place of hidden work blocks while a turn is streaming. */
+function renderRunningIndicator(): HTMLElement {
+	const row = el("div", "chat-running");
+	row.append(el("span", "chat-running-spinner"), el("span", "chat-running-label", "Running…"));
+	return row;
+}
+
 /** The tab's single expanded thinking block: its text, the open flag the user
  * last set on it, and the DOM node currently rendering it. */
 interface ThinkingSlot {
@@ -286,6 +300,12 @@ function renderAssistantBlocks(
 	toolFold?: ToolFold
 ): void {
 	for (const [i, block] of content.entries()) {
+		// The Blocks toggle strips thinking and the hideable tool cards from the
+		// transcript; text and everything else still renders.
+		if (!tab.showBlocks) {
+			if (block.type === "thinking") continue;
+			if (block.type === "toolCall" && HIDEABLE_TOOLS.has(block.name)) continue;
+		}
 		switch (block.type) {
 			case "text": {
 				const node = el("div", "md");
@@ -419,7 +439,11 @@ export class ChatView {
 			isOpen: (toolCallId, status) => {
 				if (status === "running") return false;
 				const override = this.toolFoldOverrides.get(tab.tabId)?.get(toolCallId);
-				return override ?? toolCallId === lastBashToolCallId;
+				if (override !== undefined) return override;
+				// A response is streaming: the transcript is still moving, so even
+				// the newest bash card stays folded until the turn settles.
+				if (tab.streaming) return false;
+				return toolCallId === lastBashToolCallId;
 			},
 			onToggle: (toolCallId, open) => {
 				let overrides = this.toolFoldOverrides.get(tab.tabId);
@@ -649,6 +673,11 @@ export class ChatView {
 				if (item.message.toolCallId && toolBlockFor(tab, item.message.toolCallId)) {
 					return el("div", "msg-toolresult-suppressed");
 				}
+				// Hidden work blocks: read/edit results (diff cards, file contents)
+				// go away with their tool cards.
+				if (!tab.showBlocks && item.message.toolName && HIDEABLE_TOOLS.has(item.message.toolName)) {
+					return el("div", "msg-toolresult-suppressed");
+				}
 				return renderToolResultItem(tab, item.message);
 			case "bash":
 				return renderBashItem(tab, item);
@@ -671,13 +700,16 @@ export class ChatView {
 		const node = this.containerFor(tab);
 		// Same pre-mutation "at bottom" measurement as renderTab.
 		const stick = this.nearEnd(node.parentElement);
-		if (this.streamNode?.parentElement === node && tab.streamBlocks.size === 0) {
+		// With work blocks hidden the tail still needs a home while the turn
+		// runs (the "Running…" indicator), even before any block arrives.
+		const indicatorOnly = !tab.showBlocks && tab.streaming;
+		if (this.streamNode?.parentElement === node && tab.streamBlocks.size === 0 && !indicatorOnly) {
 			this.streamNode.remove();
 			this.streamNode = null;
 			this.updateJumpEnd();
 			return;
 		}
-		if (tab.streamBlocks.size === 0) return;
+		if (tab.streamBlocks.size === 0 && !indicatorOnly) return;
 
 		if (!this.streamNode || this.streamNode.parentElement !== node) {
 			if (this.streamNode) this.streamNode.remove();
@@ -688,8 +720,17 @@ export class ChatView {
 		this.streamNode.dataset.chatIndex = String(tab.items.length);
 		const body = el("div", "msg-assistant-body");
 		const blocks = [...tab.streamBlocks.entries()].sort((a, b) => a[0] - b[0]).map(([, block]) => block);
-		const thinkingIndex = lastThinkingIndex(blocks);
-		renderAssistantBlocks(tab, blocks, body, thinkingIndex >= 0 ? this.resolveThinking(tab.tabId, blocks, thinkingIndex) : undefined);
+		// Hidden blocks still occupy indexes, so the visible set may be empty
+		// even mid-thought — that empty tail is exactly the spinner moment.
+		const visibleCount = tab.showBlocks
+			? blocks.length
+			: blocks.filter((b) => b.type !== "thinking" && !(b.type === "toolCall" && HIDEABLE_TOOLS.has(b.name))).length;
+		if (visibleCount === 0) {
+			body.append(renderRunningIndicator());
+		} else {
+			const thinkingIndex = lastThinkingIndex(blocks);
+			renderAssistantBlocks(tab, blocks, body, thinkingIndex >= 0 ? this.resolveThinking(tab.tabId, blocks, thinkingIndex) : undefined);
+		}
 		this.streamNode.replaceChildren(body);
 		this.scrollToEnd(tab, false, stick);
 		this.updateJumpEnd();

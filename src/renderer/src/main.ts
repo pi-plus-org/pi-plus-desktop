@@ -407,6 +407,12 @@ function init(): void {
 			case "meta": {
 				tabsBar.render();
 				composer.sync();
+				// status flips tab.streaming — the bash fold policy keys on it, so
+				// the tool rows must rebuild when a turn starts or settles.
+				if (event.type === "status") {
+					const tab = store.tabs.get(event.tabId);
+					if (tab) chatView.refreshTools(tab);
+				}
 				// meta keeps liveSessions (dots + active highlight) current.
 				sidebar.render();
 				// /cd and profile switches replace the session and its cwd.

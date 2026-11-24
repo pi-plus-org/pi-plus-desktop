@@ -529,6 +529,26 @@ body {
 	flex-shrink: 0;
 }
 
+/* "Running…" placeholder for the hidden work blocks in the chat. */
+.chat-running {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	color: var(--text-dim);
+	font-size: 12px;
+	padding: 2px 0;
+}
+
+.chat-running-spinner {
+	width: 12px;
+	height: 12px;
+	border-radius: 50%;
+	border: 2px solid var(--accent-dim);
+	border-top-color: var(--accent);
+	animation: spin 0.8s linear infinite;
+	flex-shrink: 0;
+}
+
 @keyframes spin {
 	to {
 		transform: rotate(360deg);
@@ -2698,6 +2718,12 @@ pre.diagram-svg {
 
 .composer-chip-danger {
 	color: var(--danger);
+}
+
+/* Active "Blocks hidden" filter chip: reads as engaged, not disabled. */
+.composer-chip-off {
+	color: var(--text);
+	background: var(--bg-hover);
 }
 
 /* Context gauge: fill bar + percent, right side of the status strip. */

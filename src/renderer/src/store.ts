@@ -87,6 +87,10 @@ export interface TabState {
 	ready: boolean;
 	streaming: boolean;
 	compacting: boolean;
+	/** Show the agent's work blocks (thinking / bash / read / edit) in the chat;
+	 *  false collapses the transcript to the conversation and shows a
+	 *  "Running…" spinner while a turn is in flight. */
+	showBlocks: boolean;
 	/** Latest main-pushed session snapshot (model, usage, persisted...). */
 	meta?: SessionMetaDTO;
 	/** Queued messages while a turn is streaming. */
@@ -298,6 +302,7 @@ class Store {
 			ready: false,
 			streaming: false,
 			compacting: false,
+			showBlocks: true,
 			queue: { steering: [], followUp: [] },
 			tasks: [],
 			model: "",

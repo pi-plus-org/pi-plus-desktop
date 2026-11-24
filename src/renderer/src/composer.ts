@@ -193,6 +193,7 @@ export class Composer {
 	private thinkingBtn!: HTMLButtonElement;
 	private skillsBtn!: HTMLButtonElement;
 	private compactBtn!: HTMLButtonElement;
+	private blocksBtn!: HTMLButtonElement;
 	private ctxChip!: HTMLElement;
 	private ctxGauge!: HTMLElement;
 	private ctxFill!: HTMLElement;
@@ -364,6 +365,9 @@ export class Composer {
 		spacer.className = "toolbar-spacer";
 		this.skillsBtn = this.chipButton("⌘ Skills", "Insert a /skill invocation", () => this.toggleSkills());
 		this.compactBtn = this.chipButton("⤓ Compact", "Compact the context now", () => void this.onCompact().catch((err) => this.showError(err)));
+		// Agent work-block visibility: thinking / bash / read / edit rows. Hidden
+		// blocks are replaced by a "Running…" spinner while a turn streams.
+		this.blocksBtn = this.chipButton("◫ Blocks", "Show or hide thinking / bash / read / edit blocks in the chat", () => this.toggleBlocks());
 		// Steer status: shows the send mode for the next message (click toggles)
 		// and the pending queue count; clear appears when messages are queued.
 		this.queueChip = this.chipButton("⇢", "Queue status", () => {
@@ -376,7 +380,7 @@ export class Composer {
 			if (tabId) void window.pi.clearQueue(tabId).catch((err) => this.showError(err));
 		});
 		this.queueClearBtn.hidden = true;
-		bar.append(this.modelBtn, this.thinkingBtn, sep, this.skillsBtn, this.compactBtn, this.queueChip, this.queueClearBtn, spacer);
+		bar.append(this.modelBtn, this.thinkingBtn, sep, this.skillsBtn, this.compactBtn, this.blocksBtn, this.queueChip, this.queueClearBtn, spacer);
 		// Last-exchange usage: in / cache-read / output tokens + cost.
 		this.usageChip = document.createElement("span");
 		this.usageChip.className = "composer-chip composer-chip-static";
@@ -650,6 +654,17 @@ export class Composer {
 	// ------------------------------------------------------------------
 	// Merged status pieces: queue (steer) + last-exchange usage
 	// ------------------------------------------------------------------
+
+	/** Toggle the active tab's agent work blocks and repaint the chat. */
+	private toggleBlocks(): void {
+		const tab = store.active;
+		if (!tab) return;
+		tab.showBlocks = !tab.showBlocks;
+		this.syncToolbar(store.active);
+		// Re-render the transcript through the normal chat path (hidden rows
+		// simply don't exist after the rebuild).
+		store.emit({ type: "chat", tabId: tab.tabId });
+	}
 
 	private renderQueueStatus(active: TabState | undefined): void {
 		const steering = active?.queue.steering ?? [];
@@ -1459,6 +1474,13 @@ export class Composer {
 			this.compactBtn.classList.remove("composer-chip-danger");
 		}
 		this.compactBtn.disabled = !active;
+		const blocksHidden = active ? !active.showBlocks : false;
+		this.blocksBtn.textContent = blocksHidden ? "◪ Blocks hidden" : "◫ Blocks";
+		this.blocksBtn.title = blocksHidden
+			? "Thinking / bash / read / edit blocks are hidden — click to show them"
+			: "Hide thinking / bash / read / edit blocks (a spinner shows while the agent runs)";
+		this.blocksBtn.classList.toggle("composer-chip-off", blocksHidden);
+		this.blocksBtn.disabled = !active;
 		const usage = active?.meta?.contextUsage;
 		if (usage && usage.percent !== null) {
 			const percent = usage.percent;
