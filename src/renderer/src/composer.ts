@@ -100,10 +100,11 @@ function findAtToken(value: string, caret: number): { atStart: number; raw: stri
 		// "foo@bar" is an email, not a mention — keep scanning left.
 		if (before && !/\s/.test(before)) continue;
 		const raw = value.slice(i + 1, caret);
-		// Whitespace inside the token means the mention ended (an inserted
-		// "@path " trailing space, or prose like "hi @bob there") — reject
-		// synchronously so the menu never flashes open on the next keystroke.
-		if (/\s/.test(raw)) return null;
+		// Spaces are legal inside a mention — real paths contain them
+		// ("@My Documents/Fi"). Prose ("hi @bob there") and the text after an
+		// inserted "@path " completion are filtered downstream: updateAtMenu
+		// rejects tokens continuing a recorded insertion, and applyListing
+		// drops unmatched whitespace filters before the menu ever paints.
 		return { atStart: i, raw };
 	}
 	return null;
@@ -165,6 +166,10 @@ export class Composer {
 	private atRequest = 0;
 	/** Skip one re-evaluation after programmatically inserting an inline path. */
 	private suppressAtNext = false;
+	/** Inline mentions the @-menu already inserted ("@path " with the trailing
+	 *  space). A caret past one of these is prose, not a live mention —
+	 *  rejected synchronously so the menu never flashes while typing on. */
+	private completedAt: string[] = [];
 	/** Active "/" token state (null = menu closed). */
 	private slash: { slashStart: number; filter: string; entries: CommandDTO[]; active: number } | null = null;
 	/** Commands per tab (fetched lazily; cleared on tab switch — commands are cwd/extension dependent). */
@@ -910,6 +915,12 @@ export class Composer {
 			this.closeAtMenu();
 			return;
 		}
+		// A token that starts with an inserted mention ("@path " + prose) is
+		// finished — reject synchronously so the menu never flashes open.
+		if (/\s/.test(tok.raw) && this.completedAt.some((t) => `@${tok.raw}`.startsWith(t))) {
+			this.closeAtMenu();
+			return;
+		}
 		const slash = tok.raw.lastIndexOf("/");
 		const dir = tok.raw.slice(0, slash + 1);
 		const filter = tok.raw.slice(slash + 1);
@@ -947,7 +958,11 @@ export class Composer {
 		}
 		at.loading = true;
 		at.entries = [];
-		this.renderAtMenu();
+		// A whitespace filter is often prose mid-sentence ("hi @bob there") —
+		// keep the menu hidden while the listing is in flight so a miss never
+		// paints a loading flash; applyListing opens it only on real matches.
+		if (/\s/.test(at.filter)) this.atMenu.hidden = true;
+		else this.renderAtMenu();
 		const request = ++this.atRequest;
 		const dir = at.dir;
 		const filter = at.filter;
@@ -1078,6 +1093,10 @@ export class Composer {
 		// read instruction to the agent. The trailing space ends the token and
 		// the suppress flag stops the menu from reopening on the inserted path.
 		const inline = `@${entry.relPath}${entry.isDir ? "/" : ""} `;
+		if (!this.completedAt.includes(inline)) {
+			this.completedAt.push(inline);
+			if (this.completedAt.length > 50) this.completedAt.shift();
+		}
 		this.suppressAtNext = true;
 		this.replaceAtToken(inline);
 		if (abs) this.addAttachment(abs, entry.isDir);
