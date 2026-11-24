@@ -103,6 +103,26 @@ let packagesWindow: BrowserWindow | null = null;
 /** About window (app menu → About Pi+); version info only, no IPC. */
 let aboutWindow: BrowserWindow | null = null;
 
+// Sub windows are modal to the main window: while any of them is open the
+// main window must not become the key window — a click on it, a Dock/⌘Tab
+// activation, or any code path calling mainWindow.focus() bounces back to
+// the sub window. `lastFocusedSub` remembers which sub window held focus
+// most recently so the bounce returns to the right one.
+let lastFocusedSub: BrowserWindow | null = null;
+app.on("browser-window-focus", (_event, win) => {
+	if (win === settingsWindow || win === packagesWindow || win === aboutWindow) {
+		lastFocusedSub = win;
+		return;
+	}
+	if (win !== mainWindow || !mainWindow || mainWindow.isDestroyed()) return;
+	const sub = [lastFocusedSub, settingsWindow, packagesWindow, aboutWindow].find(
+		(w): w is BrowserWindow => !!w && !w.isDestroyed(),
+	);
+	if (!sub) return;
+	if (sub.isMinimized()) sub.restore();
+	sub.focus();
+});
+
 // pi-plus-sdk's own version, for the About form. The package exports its
 // package.json subpath; the desktop version comes from app.getVersion().
 const sdkVersion = (() => {
