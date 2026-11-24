@@ -8,7 +8,8 @@ import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, shell } from "electron";
+import type { MenuItemConstructorOptions } from "electron";
 import { isImagePath } from "../shared/attachments.ts";
 import { IPC, type CompactionPatch, type DirEntryDTO, type ListDirResultDTO, type McpPatchScopeDTO, type McpTargetDTO, type PackageToolsSettingsDTO, type PermissionMode, type ProfileDTO, type ThemeMode } from "../shared/ipc-types.ts";
 import { LoginBridge } from "./auth-bridge.ts";
@@ -212,6 +213,35 @@ function guardNavigation(win: BrowserWindow): void {
 	});
 }
 
+/** Right-click menu, installed on every window: Copy for the current selection
+ *  (plus the edit basics inside text fields and Copy Link Address on anchors).
+ *  No renderer handles contextmenu, so without this a right-click is a no-op.
+ *  Dev builds also get Inspect Element at the click point. */
+function installContextMenu(win: BrowserWindow): void {
+	win.webContents.on("context-menu", (_e, params) => {
+		const items: MenuItemConstructorOptions[] = [];
+		const { editFlags } = params;
+		if (editFlags.canCut || editFlags.canPaste || editFlags.canSelectAll) {
+			// Editable field: offer the standard editing roles.
+			items.push(
+				{ label: "Cut", role: "cut", enabled: editFlags.canCut },
+				{ label: "Copy", role: "copy", enabled: editFlags.canCopy },
+				{ label: "Paste", role: "paste", enabled: editFlags.canPaste },
+				{ label: "Select All", role: "selectAll", enabled: editFlags.canSelectAll }
+			);
+		} else {
+			if (params.selectionText.trim().length > 0) items.push({ label: "Copy", role: "copy" });
+			if (params.linkURL) items.push({ label: "Copy Link Address", click: () => clipboard.writeText(params.linkURL) });
+		}
+		if (!app.isPackaged) {
+			if (items.length > 0) items.push({ type: "separator" });
+			items.push({ label: "Inspect Element", click: () => win.webContents.inspectElement(params.x, params.y) });
+		}
+		if (items.length === 0) return;
+		Menu.buildFromTemplate(items).popup({ window: win });
+	});
+}
+
 function createWindow(): void {
 	// Size/position/zoom from the last run (1280x840 / 100% on a first launch);
 	// the rect is passed to the constructor so the window never visibly jumps.
@@ -227,6 +257,7 @@ function createWindow(): void {
 	attachWindowState(mainWindow, settings);
 	if (settings.windowBounds?.maximized) mainWindow.maximize();
 	guardNavigation(mainWindow);
+	installContextMenu(mainWindow);
 	mainWindow.loadFile(path.join(__dirname, "renderer/index.html"));
 	mainWindow.on("closed", () => {
 		mainWindow = null;
@@ -269,6 +300,7 @@ function openSettingsWindow(): void {
 	});
 	stripWindowMenu(settingsWindow);
 	guardNavigation(settingsWindow);
+	installContextMenu(settingsWindow);
 	settingsWindow.loadFile(path.join(__dirname, "renderer/settings.html"));
 	settingsWindow.on("closed", () => {
 		settingsWindow = null;
@@ -294,6 +326,7 @@ function openPackagesWindow(): void {
 	});
 	stripWindowMenu(packagesWindow);
 	guardNavigation(packagesWindow);
+	installContextMenu(packagesWindow);
 	packagesWindow.loadFile(path.join(__dirname, "renderer/packages.html"));
 	packagesWindow.on("closed", () => {
 		packagesWindow = null;
@@ -317,6 +350,7 @@ function openAboutWindow(): void {
 	});
 	stripWindowMenu(aboutWindow);
 	guardNavigation(aboutWindow);
+	installContextMenu(aboutWindow);
 	aboutWindow.loadFile(path.join(__dirname, "renderer/about.html"), {
 		query: {
 			desktop: app.getVersion(),

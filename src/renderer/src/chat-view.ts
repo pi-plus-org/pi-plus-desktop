@@ -9,7 +9,7 @@ import type { ChatMessageDTO, ContentBlockDTO } from "../../shared/ipc-types.ts"
 import { thumbSrc } from "./image-thumb.ts";
 import { renderDiffView, renderAddedFile } from "./diff-view.ts";
 import { renderDiagramCard } from "./diagram-view.ts";
-import { renderMarkdownToHtml, escapeHtml } from "./markdown.ts";
+import { renderMarkdownToHtml, enhanceCodeBlocks, escapeHtml } from "./markdown.ts";
 import { notify } from "./dialogs.ts";
 import { store, type ChatItem, type TabState, type ToolBlock } from "./store.ts";
 
@@ -290,6 +290,7 @@ function renderAssistantBlocks(
 			case "text": {
 				const node = el("div", "md");
 				node.innerHTML = renderMarkdownToHtml(block.text);
+				enhanceCodeBlocks(node);
 				container.append(node);
 				break;
 			}

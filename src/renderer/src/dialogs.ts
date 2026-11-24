@@ -7,7 +7,7 @@
  */
 
 import type { DialogRequestDTO } from "../../shared/ipc-types.ts";
-import { renderMarkdownToHtml } from "./markdown.ts";
+import { renderMarkdownToHtml, enhanceCodeBlocks } from "./markdown.ts";
 
 function el(tag: string, className?: string, text?: string): HTMLElement {
 	const node = document.createElement(tag);
@@ -158,6 +158,7 @@ export class Dialogs {
 				const body = el("div", "dialog-plan-body");
 				// The plan is model output — sanitize via the shared markdown pipeline.
 				body.innerHTML = renderMarkdownToHtml(request.plan ?? "");
+				enhanceCodeBlocks(body);
 				const buttons = el("div", "dialog-buttons");
 				const approveEdits = el("button", "dialog-btn dialog-btn-primary", "Approve & auto-accept edits");
 				approveEdits.title = "Run the plan with permission mode accept-edits (file edits unattended)";

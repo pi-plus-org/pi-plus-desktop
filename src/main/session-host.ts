@@ -14,7 +14,7 @@ import { randomUUID } from "node:crypto";
 import { resolve as resolvePath } from "node:path";
 import type { WebContents } from "electron";
 import "./sdk-shim.ts";
-import type { AgentSession, AgentSessionEvent, AgentSessionRuntime, InlineExtension, PermissionModeState, SessionInfo, SettingsManager, SlashCommandInfo } from "pi-plus-sdk";
+import type { AgentSession, AgentSessionEvent, InlineExtension, PermissionModeState, PlusAgentSessionRuntime, SessionInfo, SettingsManager, SlashCommandInfo } from "pi-plus-sdk";
 import { composePromptText } from "../shared/attachments.ts";
 import {
 	IPC,
@@ -88,7 +88,7 @@ type SessionManagerInstance = ReturnType<SessionManagerSurface["open"]>;
 type PlusAgentSession = AgentSession & {
 	getSlashCommands(): SlashCommandInfo[];
 	/** Live "compaction or branch summary in flight" flag (upstream coding-agent
-	 *  getter; the bundled d.ts lags — same pattern as executeBash above). */
+	 *  getter; the bundled d.ts lags). */
 	readonly isCompacting: boolean;
 };
 
@@ -98,7 +98,7 @@ interface TabHandle {
 	profileName: string | null;
 	agentDir: string;
 	agentDirWarning?: string;
-	runtime: AgentSessionRuntime | null;
+	runtime: PlusAgentSessionRuntime | null;
 	/** Re-attached on every rebind; the old AgentSession object is dead. */
 	unsubscribe: (() => void) | null;
 	/** Pinned todo subscription (pi-plus-tasks store); re-attached on rebind. */
@@ -206,12 +206,17 @@ export class SessionHost {
 		return this.getTab(tabId).cwd;
 	}
 
+	/** Live runtime of a tab; throws when it has not been created yet. */
+	private runtimeOf(tab: TabHandle): PlusAgentSessionRuntime {
+		const runtime = tab.runtime;
+		if (!runtime) throw new Error("Session not initialized.");
+		return runtime;
+	}
+
 	/** Live session of a tab; throws when the runtime is missing. A plus
 	 *  runtime's session always carries the surface additions (see above). */
 	private sessionOf(tab: TabHandle): PlusAgentSession {
-		const session = tab.runtime?.session;
-		if (!session) throw new Error("Session not initialized.");
-		return session as PlusAgentSession;
+		return this.runtimeOf(tab).session as PlusAgentSession;
 	}
 
 	/**
@@ -240,7 +245,7 @@ export class SessionHost {
 		const restoredProfileName =
 			sessionManager && !opts?.skipProfileRestore ? this.restoreProfileFromTranscript(tab, sessionManager) : null;
 
-		let runtime: AgentSessionRuntime;
+		let runtime: PlusAgentSessionRuntime;
 		try {
 			runtime = await createPlusAgentSessionRuntime({
 				cwd: tab.cwd,
@@ -624,16 +629,20 @@ export class SessionHost {
 	}
 
 	/** Composer "!" bash mode (TUI parity): run the command through the SDK
-	 *  executor — bash on macOS/Linux, cmd.exe on Windows; that choice lives in
-	 *  the SDK's shell resolver, not here. `requestId` is echoed in the
-	 *  bash_execution_update chunk events the session emits. executeBash
-	 *  records a bashExecution transcript message itself (deferred while the
-	 *  agent streams), so the model sees the command + output on the next
-	 *  prompt unless `excludeFromContext` ("!!") says otherwise. */
+	 *  runtime's host-owned Bash executor — bash on macOS/Linux, cmd.exe on
+	 *  Windows; that choice lives in the SDK's shell resolver, not here.
+	 *  `requestId` is echoed in the bash_execution_update chunk events the
+	 *  session emits. executeBash records a bashExecution transcript message
+	 *  itself (deferred while the agent streams), so the model sees the command
+	 *  + output on the next prompt unless `excludeFromContext` ("!!") says
+	 *  otherwise. */
 	async runBash(tabId: string, requestId: string, command: string, excludeFromContext: boolean): Promise<BashResultDTO> {
 		const tab = this.getTab(tabId);
 		await this.ensureSession(tabId);
-		const result = await this.sessionOf(tab).executeBash(command, undefined, { id: requestId, excludeFromContext });
+		const result = await this.runtimeOf(tab).executeBash(command, undefined, {
+			id: requestId,
+			excludeFromContext,
+		});
 		this.refreshMeta(tab);
 		const dto: BashResultDTO = {
 			command,
@@ -648,7 +657,7 @@ export class SessionHost {
 
 	async abortBash(tabId: string): Promise<void> {
 		const tab = this.getTab(tabId);
-		if (tab.runtime) this.sessionOf(tab).abortBash();
+		if (tab.runtime) tab.runtime.abortBash();
 	}
 
 	async compact(tabId: string, customInstructions?: string): Promise<CompactResultDTO> {

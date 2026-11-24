@@ -778,6 +778,38 @@ body {
 	padding: 0;
 }
 
+/* Fenced code blocks get a hover-revealed copy button (enhanceCodeBlocks in
+   markdown.ts wraps each <pre> in .code-block and appends the button). */
+.code-block {
+	position: relative;
+}
+
+.code-copy {
+	position: absolute;
+	top: 6px;
+	right: 6px;
+	padding: 2px 8px;
+	font-size: 11px;
+	line-height: 1.5;
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	background: var(--bg);
+	color: var(--text-dim);
+	cursor: pointer;
+	opacity: 0;
+	transition: opacity 0.12s;
+}
+
+.code-block:hover .code-copy,
+.code-copy:focus-visible {
+	opacity: 1;
+}
+
+.code-copy:hover {
+	color: var(--text);
+	border-color: var(--text-dim);
+}
+
 .md ul,
 .md ol {
 	margin: 0 0 10px;

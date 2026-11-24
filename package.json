@@ -20,6 +20,7 @@
     "test:attachments": "node scripts/test-composer-attachments.mjs",
     "test:windows": "node scripts/test-window-state.mjs",
     "test:keys": "node scripts/test-key-hints.mjs",
+    "test:codecopy": "node scripts/test-code-copy.mjs",
     "test:steer-queue": "node scripts/test-steer-queue.mjs",
     "test:steer-e2e": "node scripts/test-steer-e2e.mjs",
     "test:steer-longtool": "node scripts/test-steer-longtool.mjs",
@@ -30,7 +31,7 @@
   "dependencies": {
     "dompurify": "^3.2.4",
     "marked": "^15.0.7",
-    "pi-plus-sdk": "^0.2.46"
+    "pi-plus-sdk": "file:../pi/packages/plus-api/dist/npm"
   },
   "devDependencies": {
     "@types/node": "^22.13.0",
