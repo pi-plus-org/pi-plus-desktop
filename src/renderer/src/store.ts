@@ -4,6 +4,7 @@
  */
 
 import { parseComposedPrompt } from "../../shared/attachments.ts";
+import { stripLeadingSkillBlocks } from "../../shared/skill-block.ts";
 import type {
 	BashResultDTO,
 	ChatMessageDTO,
@@ -239,8 +240,9 @@ function textOfContent(content: ChatMessageDTO["content"]): string {
 export function messageToItems(message: ChatMessageDTO): ChatItem[] {
 	if (message.role === "user") {
 		// Reverse the composer's attachment decoration so resumed sessions show
-		// chips/preview instead of the raw path block.
-		const { text, attachments } = parseComposedPrompt(textOfContent(message.content));
+		// chips/preview instead of the raw path block. Skill invocations are stored
+		// expanded for the model; show only what the user typed.
+		const { text, attachments } = parseComposedPrompt(stripLeadingSkillBlocks(textOfContent(message.content)));
 		return [{ kind: "user", text, ts: message.timestamp, ...(attachments.length > 0 ? { attachments } : {}) }];
 	}
 	if (message.role === "assistant") return [{ kind: "assistant", message }];
