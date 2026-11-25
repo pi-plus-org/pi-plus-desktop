@@ -256,11 +256,11 @@ function lastThinkingIndex(blocks: ContentBlockDTO[]): number {
 }
 
 /**
- * Agent work blocks the "Blocks" toggle hides: thinking plus the bash / read /
- * edit / write tool activity. Everything else (text, other tools, user-visible
- * rows) stays on screen so the transcript still reads as a conversation.
+ * The "Blocks" toggle hides ALL agent work — thinking blocks and every tool
+ * card / tool result (bash, read, edit, write, task, memory, MCP…). Text,
+ * user-visible rows (user messages, notices, composer-run bash) stay on
+ * screen so the transcript still reads as a conversation.
  */
-const HIDEABLE_TOOLS = new Set(["bash", "read", "edit", "write"]);
 
 /** Row shown in place of hidden work blocks while a turn is streaming. */
 function renderRunningIndicator(): HTMLElement {
@@ -305,11 +305,10 @@ function renderAssistantBlocks(
 	toolFold?: ToolFold
 ): void {
 	for (const [i, block] of content.entries()) {
-		// The Blocks toggle strips thinking and the hideable tool cards from the
+		// The Blocks toggle strips thinking and every tool card from the
 		// transcript; text and everything else still renders.
 		if (!tab.showBlocks) {
-			if (block.type === "thinking") continue;
-			if (block.type === "toolCall" && HIDEABLE_TOOLS.has(block.name)) continue;
+			if (block.type === "thinking" || block.type === "toolCall") continue;
 		}
 		switch (block.type) {
 			case "text": {
@@ -691,9 +690,9 @@ export class ChatView {
 				if (item.message.toolCallId && toolBlockFor(tab, item.message.toolCallId)) {
 					return el("div", "msg-toolresult-suppressed");
 				}
-				// Hidden work blocks: read/edit/write results (diff cards, file
-				// contents) go away with their tool cards.
-				if (!tab.showBlocks && item.message.toolName && HIDEABLE_TOOLS.has(item.message.toolName)) {
+				// Hidden work blocks: every tool result row goes away with the
+				// tool cards (read/edit/write contents, task updates, MCP output…).
+				if (!tab.showBlocks) {
 					return el("div", "msg-toolresult-suppressed");
 				}
 				return renderToolResultItem(tab, item.message);
@@ -764,7 +763,7 @@ export class ChatView {
 		// even mid-thought — that empty tail is exactly the spinner moment.
 		const visibleCount = tab.showBlocks
 			? blocks.length
-			: blocks.filter((b) => b.type !== "thinking" && !(b.type === "toolCall" && HIDEABLE_TOOLS.has(b.name))).length;
+			: blocks.filter((b) => b.type !== "thinking" && b.type !== "toolCall").length;
 		if (visibleCount === 0) {
 			body.append(renderRunningIndicator());
 		} else {

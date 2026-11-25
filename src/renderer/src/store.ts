@@ -87,8 +87,8 @@ export interface TabState {
 	ready: boolean;
 	streaming: boolean;
 	compacting: boolean;
-	/** Show the agent's work blocks (thinking / bash / read / edit / write) in
-	 *  the chat; false collapses the transcript to the conversation and shows a
+	/** Show the agent's work blocks (thinking + all tool activity) in the
+	 *  chat; false collapses the transcript to the conversation and shows a
 	 *  "Running…" spinner while a turn is in flight. */
 	showBlocks: boolean;
 	/** Latest main-pushed session snapshot (model, usage, persisted...). */
