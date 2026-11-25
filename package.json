@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke.mjs",
     "test:thinking": "node scripts/test-thinking-dom.mjs",
+    "test:tools": "node scripts/test-tool-fold.mjs",
     "test:diagram": "node scripts/test-diagram-card.mjs",
     "test:panels": "node scripts/test-panel-fold.mjs",
     "test:history": "node scripts/test-composer-history.mjs",

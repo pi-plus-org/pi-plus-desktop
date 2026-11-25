@@ -25,12 +25,14 @@ function toolBlockFor(tab: TabState, toolCallId: string): ToolBlock | undefined 
 }
 
 /**
- * Fold policy for agent bash tool rows: the tab's newest bash row renders
- * open, every older one stays folded; manual toggles persist per toolCallId
- * (ChatView keeps the override map) so re-renders don't undo a user choice.
+ * Fold policy for agent tool rows. write/edit rows follow the thinking-block
+ * rule (the newest of the current turn unfolds while it streams, everything
+ * folds when the turn settles); bash and read rows fold by default. Manual
+ * toggles persist per toolCallId (ChatView keeps the override map) so
+ * re-renders don't undo a user choice.
  */
 interface ToolFold {
-	isOpen: (toolCallId: string, status: string) => boolean;
+	isOpen: (toolCallId: string, name: string) => boolean;
 	onToggle: (toolCallId: string, open: boolean) => void;
 }
 
@@ -54,9 +56,11 @@ export function isCardedBashResult(tab: TabState, item: ChatItem): boolean {
 }
 
 /**
- * Tool-call row: header (icon + name + status) toggle-open. `openByDefault`
- * keeps the tab's newest bash result expanded; `onToggle` records manual
- * folds/expands so later re-renders respect them.
+ * Tool-call row: header (icon + name + status) toggle-open. Rows render
+ * folded by default (`openByDefault` carries the fold policy's auto-open —
+ * only the newest write/edit mid-stream — plus manual opens across
+ * re-renders); `onToggle` records manual folds/expands so later re-renders
+ * respect them.
  */
 function renderToolRow(
 	tab: TabState,
@@ -265,11 +269,20 @@ function renderRunningIndicator(): HTMLElement {
 	return row;
 }
 
-/** The tab's single expanded thinking block: its text, the open flag the user
- * last set on it, and the DOM node currently rendering it. */
+/** Last open state each thinking <details> was rendered with. The `toggle`
+ * event fires for programmatic `details.open = …` assignments too, so the
+ * listener compares against this to tell a real user gesture apart. */
+const thinkingRenderedOpen = new WeakMap<HTMLDetailsElement, boolean>();
+
+/** The tab's single expandable thinking block: its text, the open flag the
+ * user last set on it (with `touched` marking that a human, not the default,
+ * set it), whether a settled turn already folded it, and the DOM node
+ * currently rendering it. */
 interface ThinkingSlot {
 	text: string;
 	open: boolean;
+	touched: boolean;
+	settled: boolean;
 	node: HTMLDetailsElement | null;
 }
 
@@ -313,8 +326,15 @@ function renderAssistantBlocks(
 				details.append(el("div", "thinking-body", block.thinking));
 				if (thinking && i === thinking.index) {
 					details.open = thinking.open;
+					thinkingRenderedOpen.set(details, thinking.open);
 					thinking.claim(details);
-					details.addEventListener("toggle", () => thinking.toggle(details, details.open));
+					details.addEventListener("toggle", () => {
+						// Programmatic `details.open = …` also fires `toggle`; only a
+						// state that differs from the last render is a user gesture.
+						if (thinkingRenderedOpen.get(details) === details.open) return;
+						thinkingRenderedOpen.set(details, details.open);
+						thinking.toggle(details, details.open);
+					});
 				}
 				container.append(details);
 				break;
@@ -329,7 +349,7 @@ function renderAssistantBlocks(
 					break;
 				}
 				container.append(
-					renderToolRow(tab, block.id, block.name, toolFold ? toolFold.isOpen(block.id, status) : false, toolFold?.onToggle)
+					renderToolRow(tab, block.id, block.name, toolFold ? toolFold.isOpen(block.id, block.name) : false, toolFold?.onToggle)
 				);
 				break;
 			}
@@ -413,36 +433,40 @@ export class ChatView {
 	/** Node holding the live streaming content for fast delta updates. */
 	private streamNode: HTMLElement | null = null;
 	/**
-	/**
-	 * Per-tab state of the one expanded thinking block. The stream re-renders on
+	 * Per-tab state of the one expandable thinking block. The stream re-renders on
 	 * every delta and refreshTools re-renders the whole list, so the block is
 	 * identified by its text: deltas grow the same string (prefix match) and
 	 * finalization hands it over to the items pass unchanged, while a new
-	 * thinking block never prefix-matches and so starts expanded again. The node
-	 * reference is what makes folding reliable: the message list is only rebuilt
-	 * on `chat` events, so when a new block takes the slot from one that is still
-	 * on screen (the previous turn's thinking sitting in a finalized item), the
-	 * loser is folded explicitly instead of waiting for a re-render that only
-	 * comes when the incoming message finalizes.
+	 * thinking block never prefix-matches and so takes the slot over. The default
+	 * open state follows the turn: unfolded while streaming (live reasoning),
+	 * folded once the response settles — and kept folded when the next turn
+	 * starts streaming (`settled`), so only a new thinking block reopens the
+	 * default. A manual toggle (`touched`) pins the block to the user's choice
+	 * instead. The node reference is what makes
+	 * folding reliable: the message list is only rebuilt on `chat`/`status`
+	 * events, so when a new block takes the slot from one that is still on screen
+	 * (the previous turn's thinking sitting in a finalized item), the loser is
+	 * folded explicitly instead of waiting for a re-render that only comes when
+	 * the incoming message finalizes.
 	 */
 	private thinkingSlots = new Map<string, ThinkingSlot>();
 	/** Per-tab manual open/close overrides for agent bash tool rows, keyed by
 	 *  toolCallId — survives the full re-renders that chat events trigger. */
 	private toolFoldOverrides = new Map<string, Map<string, boolean>>();
 
-	/** Fold policy handed to assistant renders: the tab's newest bash tool row
-	 *  opens by default, older ones stay folded; running rows never auto-open
-	 *  (their output streams into the chat anyway). Manual toggles persist. */
-	private toolFoldFor(tab: TabState, lastBashToolCallId: string | null): ToolFold {
+	/** Fold policy handed to assistant renders. Bash/read rows stay folded
+	 *  always (running or not, streaming or settled) — only a manual toggle
+	 *  opens them. write/edit rows follow the thinking block: the newest of
+	 *  the current turn unfolds while it streams (including while the call
+	 *  runs) and folds when the turn settles. */
+	private toolFoldFor(tab: TabState, lastWriteEditToolCallId: string | null): ToolFold {
 		return {
-			isOpen: (toolCallId, status) => {
-				if (status === "running") return false;
+			isOpen: (toolCallId, name) => {
 				const override = this.toolFoldOverrides.get(tab.tabId)?.get(toolCallId);
 				if (override !== undefined) return override;
-				// A response is streaming: the transcript is still moving, so even
-				// the newest bash card stays folded until the turn settles.
-				if (tab.streaming) return false;
-				return toolCallId === lastBashToolCallId;
+				if (!tab.streaming) return false;
+				if (name !== "write" && name !== "edit") return false;
+				return toolCallId === lastWriteEditToolCallId;
 			},
 			onToggle: (toolCallId, open) => {
 				let overrides = this.toolFoldOverrides.get(tab.tabId);
@@ -558,29 +582,14 @@ export class ChatView {
 				const content = assistantContent(item.message);
 				const index = lastThinkingIndex(content);
 				if (index >= 0) {
-					openOn = { item: i, thinking: this.resolveThinking(tab.tabId, content, index) };
+					openOn = { item: i, thinking: this.resolveThinking(tab.tabId, content, index, tab.streaming) };
 					break;
 				}
 			}
 			if (!openOn) this.releaseSlot(tab.tabId);
 		}
-		// Newest agent bash tool row opens by default; every older one stays
-		// folded. Scan the transcript backwards (assistant toolCall blocks).
-		let lastBashToolCallId: string | null = null;
-		for (let i = tab.items.length - 1; i >= 0; i--) {
-			const item = tab.items[i];
-			if (item?.kind !== "assistant") continue;
-			const blocks = assistantContent(item.message);
-			for (let j = blocks.length - 1; j >= 0; j--) {
-				const b = blocks[j];
-				if (b?.type === "toolCall" && b.name === "bash") {
-					lastBashToolCallId = b.id;
-					break;
-				}
-			}
-			if (lastBashToolCallId) break;
-		}
 		// Prune manual tool-fold overrides whose tool calls left the transcript.
+		const lastWriteEditId = this.lastWriteEditToolCallId(tab);
 		const toolOverrides = this.toolFoldOverrides.get(tab.tabId);
 		if (toolOverrides && toolOverrides.size > 0) {
 			const live = new Set<string>();
@@ -602,7 +611,7 @@ export class ChatView {
 				tab,
 				item,
 				i,
-				lastBashToolCallId,
+				lastWriteEditId,
 				openOn && openOn.item === i ? openOn.thinking : undefined
 			);
 			// Addressable row index for the in-session message search
@@ -616,18 +625,25 @@ export class ChatView {
 	}
 
 	/** Decide the open state for the block at `index` and build its descriptor. */
-	private resolveThinking(tabId: string, blocks: ContentBlockDTO[], index: number): LatestThinking {
+	private resolveThinking(tabId: string, blocks: ContentBlockDTO[], index: number, streaming: boolean): LatestThinking {
 		const block = blocks[index];
 		const text = block?.type === "thinking" ? block.thinking : "";
-		const slot = this.thinkingSlots.get(tabId) ?? { text: "", open: true, node: null };
+		const slot = this.thinkingSlots.get(tabId) ?? { text: "", open: true, touched: false, settled: false, node: null };
 		if (!text.startsWith(slot.text)) {
-			// A new block took over: reset it to expanded.
+			// A new block took over: back to the streaming default.
 			slot.text = "";
 			slot.open = true;
+			slot.touched = false;
+			slot.settled = false;
 		}
 		slot.text = text;
 		this.thinkingSlots.set(tabId, slot);
-		const open = slot.open;
+		// Default: unfolded while the turn streams (live reasoning), folded once
+		// the response settles. `settled` keeps it folded when the NEXT turn
+		// starts streaming — only a new thinking block reopens the default. A
+		// manual toggle always wins over the default.
+		if (!streaming && !slot.touched) slot.settled = true;
+		const open = slot.touched ? slot.open : streaming && !slot.settled;
 		return {
 			index,
 			open,
@@ -638,7 +654,10 @@ export class ChatView {
 			},
 			toggle: (node, next) => {
 				// Only the node currently holding the slot may steer its state.
-				if (slot.node === node) slot.open = next;
+				if (slot.node === node) {
+					slot.open = next;
+					slot.touched = true;
+				}
 			}
 		};
 	}
@@ -655,14 +674,14 @@ export class ChatView {
 		tab: TabState,
 		item: TabState["items"][number],
 		index: number,
-		lastBashToolCallId: string | null,
+		lastWriteEditToolCallId: string | null,
 		thinking?: LatestThinking
 	): HTMLElement {
 		switch (item.kind) {
 			case "user":
 				return renderUserItem(item);
 			case "assistant":
-				return renderAssistantItem(tab, item.message, thinking, this.toolFoldFor(tab, lastBashToolCallId));
+				return renderAssistantItem(tab, item.message, thinking, this.toolFoldFor(tab, lastWriteEditToolCallId));
 			case "toolResult":
 				// Carded tools already show their result inside the expandable tool
 				// row — store.ts seeds that card from the transcript (rebuildToolBlocks)
@@ -688,6 +707,28 @@ export class ChatView {
 	}
 
 	/** Refresh tool rows only (status/result updates). */
+	/** The newest write/edit toolCall of the current turn (after the last user
+	 *  message) — the live stream tail counts too. Only this row auto-opens
+	 *  while the turn streams (mirroring the thinking slot); scanning stops at
+	 *  the last user item so a settled turn's write/edit rows never reopen. */
+	private lastWriteEditToolCallId(tab: TabState): string | null {
+		const tail = [...tab.streamBlocks.entries()].sort((a, b) => b[0] - a[0]);
+		for (const [, block] of tail) {
+			if (block.type === "toolCall" && (block.name === "write" || block.name === "edit")) return block.id;
+		}
+		for (let i = tab.items.length - 1; i >= 0; i--) {
+			const item = tab.items[i];
+			if (item?.kind === "user") break;
+			if (item?.kind !== "assistant") continue;
+			const blocks = assistantContent(item.message);
+			for (let j = blocks.length - 1; j >= 0; j--) {
+				const b = blocks[j];
+				if (b?.type === "toolCall" && (b.name === "write" || b.name === "edit")) return b.id;
+			}
+		}
+		return null;
+	}
+
 	refreshTools(tab: TabState, forceScroll = false): void {
 		// Tool status changes are infrequent; a full re-render keeps the code path
 		// simple and preserves streaming node identity.
@@ -728,7 +769,13 @@ export class ChatView {
 			body.append(renderRunningIndicator());
 		} else {
 			const thinkingIndex = lastThinkingIndex(blocks);
-			renderAssistantBlocks(tab, blocks, body, thinkingIndex >= 0 ? this.resolveThinking(tab.tabId, blocks, thinkingIndex) : undefined);
+			renderAssistantBlocks(
+				tab,
+				blocks,
+				body,
+				thinkingIndex >= 0 ? this.resolveThinking(tab.tabId, blocks, thinkingIndex, tab.streaming) : undefined,
+				this.toolFoldFor(tab, this.lastWriteEditToolCallId(tab))
+			);
 		}
 		this.streamNode.replaceChildren(body);
 		this.scrollToEnd(tab, false, stick);
