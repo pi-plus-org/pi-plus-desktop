@@ -14,6 +14,7 @@ import { randomUUID } from "node:crypto";
 import { resolve as resolvePath } from "node:path";
 import type { WebContents } from "electron";
 import "./sdk-shim.ts";
+import { createHtmlDiagramTool } from "./diagram-tool.ts";
 import type { AgentSession, AgentSessionEvent, InlineExtension, PermissionModeState, AgentSessionRuntime, SessionInfo, SettingsManager, SlashCommandInfo } from "pi-plus-sdk";
 import { composePromptText } from "../shared/attachments.ts";
 import {
@@ -254,6 +255,13 @@ export class SessionHost {
 				// The subagent tool spawns a `pi` subprocess; in this Electron host that
 				// can relaunch the app binary, so it stays disabled.
 				excludeTools: ["subagent"],
+				// draw_diagram is overridden with the desktop's HTML diagram tool:
+				// customTools are applied after extension tools in the session
+				// registry, so this same-named tool replaces the SDK's
+				// pi-plus-diagram node-edge tool (extensionFactories could not shadow
+				// it — across extensions the first registration wins, and the SDK
+				// factories load first). See diagram-tool.ts.
+				customTools: [createHtmlDiagramTool()],
 				// Permission gate: reads (and the /permissions command writes) the
 				// tab's live mode holder; host-side switches push meta back.
 				extensionFactories: [

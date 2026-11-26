@@ -1081,6 +1081,17 @@ pre.diagram-embed-frame {
 	color: #333;
 }
 
+/* HTML diagram bodies (the desktop's draw_diagram override): a static
+ * sandboxed iframe, width of the message column; the height starts compact
+ * and fits the content on load (diagram-view.ts), and the user can resize
+ * vertically by hand. */
+iframe.diagram-embed-html {
+	display: block;
+	width: 100%;
+	border: none;
+	resize: vertical;
+}
+
 .diagram-embed-cap {
 	display: flex;
 	justify-content: space-between;

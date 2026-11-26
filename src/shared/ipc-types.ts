@@ -28,16 +28,20 @@ export type ContentBlockDTO =
 	| { type: "image"; placeholder: true };
 
 /**
- * Display payload for the draw_diagram tool: the layout-computed SVG (empty
- * when the host has no SVG renderer), the box-drawing ASCII fallback, counts
- * for the card header, and the standalone HTML file path when the tool was
- * asked to write one.
+ * Display payload for the draw_diagram tool. Two shapes ride this DTO:
+ * the desktop's HTML diagram tool (`html` — rendered in a static sandboxed
+ * iframe) and the legacy SDK pi-plus-diagram node-edge cards (replayed
+ * transcripts: layout-computed `svg`, box-drawing `ascii`, node/edge counts).
+ * `htmlPath` is the standalone HTML file path when the tool wrote one.
  */
 export interface DiagramCardDTO {
 	title?: string;
-	nodeCount: number;
-	edgeCount: number;
-	ascii: string;
+	/** Free-form HTML body from the desktop's draw_diagram override. */
+	html?: string;
+	nodeCount?: number;
+	edgeCount?: number;
+	/** Legacy node-edge cards: plain-text rendering + recomputed SVG. */
+	ascii?: string;
 	svg?: string;
 	htmlPath?: string;
 }
@@ -55,9 +59,9 @@ export interface ChatMessageDTO {
 	/** Display diff lifted from the edit tool result's `details.diff`; only set
 	 *  on toolResult messages whose tool produced one. */
 	diff?: string;
-	/** Diagram lifted from the draw_diagram tool result's `details` (spec +
-	 *  ASCII + optional htmlPath); the renderer shows a visual card instead of
-	 *  the JSON/ASCII blob. */
+	/** Diagram lifted from the draw_diagram tool result's `details` (HTML body
+	 *  or legacy spec + ASCII + optional htmlPath); the renderer shows a visual
+	 *  figure instead of the JSON/ASCII blob. */
 	diagram?: DiagramCardDTO;
 	customType?: string;
 	display?: boolean;

@@ -17,6 +17,9 @@ type AnyAgentMessage = { role: string; content?: unknown; [key: string]: unknown
 const TOOL_PREVIEW_LIMIT = 4096;
 const TOOL_DIFF_LIMIT = 32768;
 const DIAGRAM_SVG_LIMIT = 131072;
+// Matches the HTML diagram tool's own input cap; truncation would cut markup
+// mid-tag, so it only ever guards hand-edited transcripts.
+const DIAGRAM_HTML_LIMIT = 262144;
 const SNAPSHOT_MESSAGE_LIMIT = 500;
 
 /**
@@ -30,15 +33,22 @@ export function setDiagramSvgRenderer(fn: (spec: never) => string): void {
 }
 
 /**
- * Lift a draw_diagram result's `details` ({spec, ascii, htmlPath}) into an
- * embeddable figure payload. The layout is recomputed to inline SVG so the
- * chat shows a visual diagram; the ASCII stays as the fallback for when no
- * renderer is wired or the spec fails to lay out (truncated/legacy
- * transcripts).
+ * Lift a draw_diagram result's `details` into an embeddable figure payload.
+ * Two shapes arrive here: the desktop's HTML diagram tool ({title?, html,
+ * htmlPath?} — rendered in a static sandboxed iframe) and the legacy SDK
+ * pi-plus-diagram node-edge cards ({spec, ascii, htmlPath}, replayed
+ * transcripts), whose layout is recomputed to inline SVG with the ASCII as
+ * fallback for when no renderer is wired or the spec fails to lay out.
  */
 function diagramCardFromDetails(details: unknown): DiagramCardDTO | undefined {
 	if (!details || typeof details !== "object") return undefined;
 	const d = details as Record<string, unknown>;
+	if (typeof d.html === "string" && d.html) {
+		const card: DiagramCardDTO = { html: truncate(d.html, DIAGRAM_HTML_LIMIT) };
+		if (typeof d.title === "string" && d.title) card.title = truncate(d.title, 200);
+		if (typeof d.htmlPath === "string" && d.htmlPath) card.htmlPath = d.htmlPath;
+		return card;
+	}
 	if (typeof d.ascii !== "string" || !d.spec || typeof d.spec !== "object") return undefined;
 	const spec = d.spec as Record<string, unknown>;
 	if (!Array.isArray(spec.nodes)) return undefined;
