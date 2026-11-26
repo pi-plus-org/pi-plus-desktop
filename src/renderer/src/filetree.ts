@@ -4,9 +4,9 @@
  * One directory level is fetched at a time through the same fs:listDir IPC
  * as the composer's @-menu (it clamps listings to the tab's cwd, resolves
  * symlinked dirs, and caps huge listings), so no new main-process surface is
- * needed. The header ⌂ reveals the selected row (or the cwd itself when
- * nothing is selected) in Finder/Explorer — the item is selected inside its
- * parent folder; ⟳ re-lists every expanded directory; ⌘/Ctrl+⌥/Alt+B
+ * needed. The header ⌂ opens the selected row (or the cwd itself when
+ * nothing is selected) in Finder/Explorer — folders open in place, files are
+ * revealed highlighted inside their parent; ⟳ re-lists every expanded directory; ⌘/Ctrl+⌥/Alt+B
  * (View → Toggle File Tree) collapses the panel to a floating chip, like the
  * history sidebar's ⌘B. The tree re-syncs when the active tab or its cwd
  * changes (tab switch, /cd, resume) and debounce-refreshes on chat activity
@@ -222,6 +222,16 @@ export class FileTree {
 		this.render();
 	}
 
+	/** True while the selected target is a directory (the cwd root counts). */
+	private selectedIsDir(): boolean {
+		if (this.selected === null || this.selected === "") return true;
+		for (const entries of this.children.values()) {
+			const entry = entries.find((e) => e.relPath === this.selected);
+			if (entry) return entry.isDir;
+		}
+		return false;
+	}
+
 	/** True while relPath appears in any currently loaded listing. */
 	private isListed(rel: string): boolean {
 		for (const entries of this.children.values()) {
@@ -289,15 +299,23 @@ export class FileTree {
 		const header = el("div", "sidebar-header");
 		header.append(el("span", "sidebar-header-title", "Files"));
 		// ⌂ targets the selected row, or the cwd when nothing is highlighted.
+		// A folder is opened in place (Finder/Explorer window on that folder);
+		// a file is revealed highlighted inside its parent.
 		const revealTarget = this.absPath(this.selected);
 		const revealName = this.selected ? this.selected.split("/").pop() : tab?.cwd ?? "";
+		const targetIsDir = this.selectedIsDir();
 		const openBtn = el("button", "sidebar-refresh", "⌂");
-		openBtn.title = revealTarget ? `Reveal '${revealName}' in system file explorer` : "No folder to reveal";
+		openBtn.title = revealTarget
+			? targetIsDir
+				? `Open '${revealName}' in system file explorer`
+				: `Reveal '${revealName}' in system file explorer`
+			: "No folder to reveal";
 		openBtn.toggleAttribute("disabled", !revealTarget);
 		openBtn.addEventListener("click", () => {
 			if (!revealTarget) return;
-			void window.pi.revealPath(revealTarget).then((error) => {
-				if (error) notify(`Could not reveal '${revealTarget}': ${error}`, "error");
+			const action = targetIsDir ? window.pi.openPath(revealTarget) : window.pi.revealPath(revealTarget);
+			void action.then((error) => {
+				if (error) notify(`Could not open '${revealTarget}': ${error}`, "error");
 			});
 		});
 		const refreshBtn = el("button", "sidebar-refresh", "⟳");
@@ -311,7 +329,7 @@ export class FileTree {
 
 		const cwdLabel = el("div", "filetree-cwd");
 		cwdLabel.textContent = tab ? tab.cwd || "(no folder)" : "";
-		cwdLabel.title = tab ? `${tab.cwd} · click to select the folder itself (⌂ reveals it)` : "";
+		cwdLabel.title = tab ? `${tab.cwd} · click to select the folder itself (⌂ opens it)` : "";
 		if (this.selected === "") cwdLabel.classList.add("filetree-cwd-selected");
 		cwdLabel.addEventListener("click", () => {
 			if (!store.active) return;
