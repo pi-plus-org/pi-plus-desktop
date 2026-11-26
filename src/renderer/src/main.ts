@@ -61,6 +61,15 @@ async function newTab(firstPrompt?: string): Promise<boolean> {
 }
 
 async function closeTab(tabId: string): Promise<void> {
+	// A running tab must be confirmed first: closing disposes the runtime,
+	// which aborts the in-flight turn.
+	if (store.tabs.get(tabId)?.streaming) {
+		const ok = await dialogs.confirmLocal(
+			"Close tab?",
+			"The agent is still running in this tab. Closing it will abort the current turn."
+		);
+		if (!ok) return;
+	}
 	await window.pi.closeTab(tabId);
 	store.removeTab(tabId);
 }
