@@ -38,7 +38,7 @@ import {
 } from "../shared/ipc-types.ts";
 import type { DialogBridge } from "./dialogs.ts";
 import type { ProfileStore } from "./profiles.ts";
-import { sanitizeEvent, sanitizeSnapshot, setDiagramSvgRenderer } from "./session-sanitize.ts";
+import { sanitizeBranchSnapshot, sanitizeEvent, setDiagramSvgRenderer } from "./session-sanitize.ts";
 
 // Imported dynamically so the sdk-shim module (a static import above) installs
 // the global require before pi-plus-sdk's ESM bundle evaluates — static imports
@@ -91,6 +91,11 @@ type PlusAgentSession = AgentSession & {
 	/** Live "compaction or branch summary in flight" flag (upstream coding-agent
 	 *  getter; the bundled d.ts lags). */
 	readonly isCompacting: boolean;
+	/** Transcript manager (upstream coding-agent field; the bundled d.ts lags).
+	 *  `getBranch()` returns the full active leaf→root path — every entry type,
+	 *  with NO compaction filtering — which is what the resume snapshot needs
+	 *  (`session.messages` is the compaction-aware model context instead). */
+	readonly sessionManager: { getBranch(): unknown[] };
 };
 
 interface TabHandle {
@@ -397,7 +402,7 @@ export class SessionHost {
 		const session = this.sessionOf(tab);
 		return {
 			meta: this.buildMeta(tab, session),
-			messages: sanitizeSnapshot(session.messages),
+			messages: sanitizeBranchSnapshot(session.sessionManager.getBranch()),
 			editorText,
 			cancelled,
 		};

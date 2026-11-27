@@ -20,7 +20,6 @@ const DIAGRAM_SVG_LIMIT = 131072;
 // Matches the HTML diagram tool's own input cap; truncation would cut markup
 // mid-tag, so it only ever guards hand-edited transcripts.
 const DIAGRAM_HTML_LIMIT = 262144;
-const SNAPSHOT_MESSAGE_LIMIT = 500;
 
 /**
  * SVG renderer injected by session-host once the SDK is loaded (this module
@@ -350,9 +349,27 @@ export function sanitizeEvent(event: Record<string, unknown>): SanitizedEvent | 
 	}
 }
 
-/** Snapshot of prior messages for a resumed session. */
-export function sanitizeSnapshot(messages: readonly unknown[]): ChatMessageDTO[] {
-	const droppedSystem = messages.filter((m) => (m as { role?: string }).role !== "system");
-	const capped = droppedSystem.length > SNAPSHOT_MESSAGE_LIMIT ? droppedSystem.slice(-SNAPSHOT_MESSAGE_LIMIT) : droppedSystem;
-	return capped.map((m) => messageToDTO(m as AnyAgentMessage));
+/** Snapshot of a resumed session for display: every message on the session's
+ *  active branch (leaf→root path from `SessionManager.getBranch()`), so the
+ *  chat window reaches back to the first message. `session.messages` cannot
+ *  be used here — it is the compaction-aware model context, which omits
+ *  everything the last compaction summarized away. Compaction entries become
+ *  divider notices; context_edit/model_change/etc. entries are skipped
+ *  (display shows the original messages, ignoring context-only edits). */
+export function sanitizeBranchSnapshot(branch: readonly unknown[]): ChatMessageDTO[] {
+	const out: ChatMessageDTO[] = [];
+	for (const raw of branch) {
+		const entry = raw as { type?: string; message?: unknown };
+		if (entry?.type === "message") {
+			const dto = messageToDTO(entry.message as AnyAgentMessage);
+			if (dto.role !== "system") out.push(dto);
+		} else if (entry?.type === "compaction") {
+			out.push({
+				role: "custom",
+				content: "Context compacted — the model's memory of the earlier messages above was summarized",
+				display: true,
+			});
+		}
+	}
+	return out;
 }
