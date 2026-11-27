@@ -1,8 +1,8 @@
 /**
  * Bridges the SDK's PlusUIDialogHandlers (used by extensions such as ask_user)
- * to modal dialogs in the renderer. Requests are serialized per tab, time out
- * after five minutes, and resolve as cancelled when their tab closes — the
- * extension flow in the main process always settles, never hangs.
+ * to modal dialogs in the renderer. Requests are serialized per tab and wait
+ * indefinitely for the user's answer; they resolve as cancelled only when
+ * their tab closes.
  */
 
 import { randomUUID } from "node:crypto";
@@ -10,12 +10,9 @@ import type { WebContents } from "electron";
 import type { PlanReviewDialogChoice, PlusUIDialogHandlers } from "pi-plus-sdk";
 import { IPC, type DialogKind, type DialogRequestDTO } from "../shared/ipc-types.ts";
 
-const DIALOG_TIMEOUT_MS = 5 * 60 * 1000;
-
 interface PendingDialog {
 	tabId: string;
 	resolve: (value: unknown) => void;
-	timer: NodeJS.Timeout;
 }
 
 export class DialogBridge {
@@ -34,11 +31,7 @@ export class DialogBridge {
 			const request: DialogRequestDTO = { tabId, requestId, kind, ...params };
 
 			const result = new Promise<T>((resolve) => {
-				const timer = setTimeout(() => {
-					this.pending.delete(requestId);
-					resolve(undefined as T);
-				}, DIALOG_TIMEOUT_MS);
-				this.pending.set(requestId, { tabId, resolve: resolve as (value: unknown) => void, timer });
+				this.pending.set(requestId, { tabId, resolve: resolve as (value: unknown) => void });
 			});
 
 			webContents.send(IPC.push.dialogRequest, request);
@@ -79,7 +72,6 @@ export class DialogBridge {
 	respond(requestId: string, value: unknown): void {
 		const dialog = this.pending.get(requestId);
 		if (!dialog) return;
-		clearTimeout(dialog.timer);
 		this.pending.delete(requestId);
 		dialog.resolve(value);
 	}
@@ -88,7 +80,6 @@ export class DialogBridge {
 	cancelForTab(tabId: string): void {
 		for (const [requestId, dialog] of this.pending) {
 			if (dialog.tabId !== tabId) continue;
-			clearTimeout(dialog.timer);
 			this.pending.delete(requestId);
 			dialog.resolve(undefined);
 		}

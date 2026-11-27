@@ -1,9 +1,13 @@
 /**
  * Renderer-side dialogs: renders modal select/confirm/input/editor requests
  * from the main process (extension ask_user flows) and answers via
- * dialog:respond. Esc and backdrop close resolve as cancelled. The
- * promptLocal/selectLocal/confirmLocal helpers render the same overlay for
- * renderer-initiated asks (rename, fork pickers, compaction instructions).
+ * dialog:respond. Esc and backdrop close resolve as cancelled. Bridge
+ * dialogs are individual per session tab: each tab owns its own overlay,
+ * only the active tab's is visible, and a dialog raised in a background tab
+ * stays pending (never cancelled by another tab's question) until its tab
+ * is shown. The promptLocal/selectLocal/confirmLocal helpers render the
+ * same overlay for renderer-initiated asks (rename, fork pickers,
+ * compaction instructions).
  */
 
 import type { DialogRequestDTO } from "../../shared/ipc-types.ts";
@@ -16,14 +20,22 @@ function el(tag: string, className?: string, text?: string): HTMLElement {
 	return node;
 }
 
+interface BridgeDialogEntry {
+	requestId: string;
+	overlay: HTMLElement;
+}
+
 export class Dialogs {
 	private root: HTMLElement;
-	private current: { requestId: string; resolve: (value: unknown) => void } | null = null;
+	private getActiveTabId: () => string;
+	/** One bridge dialog per tab; only the active tab's overlay is visible. */
+	private bridge = new Map<string, BridgeDialogEntry>();
 	/** Cancels a renderer-initiated local dialog when a bridge request preempts it. */
 	private cancelLocal: (() => void) | null = null;
 
-	constructor(root: HTMLElement) {
+	constructor(root: HTMLElement, getActiveTabId: () => string) {
 		this.root = root;
+		this.getActiveTabId = getActiveTabId;
 	}
 
 	// ------------------------------------------------------------------
@@ -80,19 +92,19 @@ export class Dialogs {
 
 	private showLocal<T>(render: (box: HTMLElement, finish: (value: T | undefined) => void, accept: (fn: () => void) => void) => void, title: string): Promise<T | undefined> {
 		return new Promise((resolve) => {
-			// A bridge request can't preempt this, but two locals shouldn't stack.
+			// Two locals shouldn't stack; bridge dialogs live in their own overlays.
 			this.cancelLocal?.();
-			this.root.replaceChildren();
 			let settled = false;
+			let overlay: HTMLElement;
 			const finish = (value: T | undefined) => {
 				if (settled) return;
 				settled = true;
 				this.cancelLocal = null;
-				this.root.replaceChildren();
+				overlay.remove();
 				resolve(value);
 			};
 			this.cancelLocal = () => finish(undefined);
-			const overlay = el("div", "dialog-overlay");
+			overlay = el("div", "dialog-overlay");
 			const box = el("div", "dialog-box");
 			box.append(el("div", "dialog-title", title));
 			let onAccept: (() => void) | null = null;
@@ -113,23 +125,52 @@ export class Dialogs {
 		});
 	}
 
-	handleRequest(request: DialogRequestDTO): void {
-		// Only one modal at a time; unexpected extras resolve as cancelled.
-		if (this.current) {
-			window.pi.respondDialog(this.current.requestId, undefined);
-			this.current = null;
+	/** Show only the active tab's bridge dialog; a visible bridge dialog outranks a local one. */
+	setActiveTab(tabId: string): void {
+		for (const [id, entry] of this.bridge) {
+			entry.overlay.style.display = id === tabId ? "" : "none";
 		}
-		// A bridge dialog outranks a renderer-local one.
-		this.cancelLocal?.();
-		this.root.replaceChildren();
+		if (this.bridge.has(tabId)) this.cancelLocal?.();
+	}
+
+	/** Drop a closed tab's overlay; the main process already settled its promise. */
+	removeTab(tabId: string): void {
+		const entry = this.bridge.get(tabId);
+		if (!entry) return;
+		entry.overlay.remove();
+		this.bridge.delete(tabId);
+	}
+
+	/** Tab ids that currently hold a bridge dialog overlay. */
+	openTabIds(): string[] {
+		return [...this.bridge.keys()];
+	}
+
+	handleRequest(request: DialogRequestDTO): void {
+		// One bridge dialog per tab; an unexpected duplicate cancels the older one.
+		// Dialogs from OTHER tabs are untouched — they wait for their tab to be shown.
+		const existing = this.bridge.get(request.tabId);
+		if (existing) {
+			existing.overlay.remove();
+			this.bridge.delete(request.tabId);
+			window.pi.respondDialog(existing.requestId, undefined);
+		}
+		const isActive = request.tabId === this.getActiveTabId();
+		if (isActive) {
+			// A bridge dialog outranks a renderer-local one.
+			this.cancelLocal?.();
+		}
 
 		const overlay = el("div", "dialog-overlay");
+		if (!isActive) overlay.style.display = "none";
 		const box = el("div", "dialog-box");
 		box.append(el("div", "dialog-title", request.title));
 
 		const finish = (value: unknown) => {
-			this.root.replaceChildren();
-			this.current = null;
+			overlay.remove();
+			if (this.bridge.get(request.tabId)?.requestId === request.requestId) {
+				this.bridge.delete(request.tabId);
+			}
 			window.pi.respondDialog(request.requestId, value);
 		};
 
@@ -211,7 +252,7 @@ export class Dialogs {
 		});
 		overlay.append(box);
 		this.root.append(overlay);
-		this.current = { requestId: request.requestId, resolve: finish };
+		this.bridge.set(request.tabId, { requestId: request.requestId, overlay });
 	}
 
 	notify(message: string, type?: string, durationMs = 4000): void {

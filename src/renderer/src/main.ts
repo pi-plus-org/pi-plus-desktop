@@ -346,7 +346,7 @@ function init(): void {
 		})();
 	});
 	const chatView = new ChatView($("#chat"));
-	dialogs = new Dialogs($("#modal-root"));
+	dialogs = new Dialogs($("#modal-root"), () => store.activeTabId);
 	const composer = new Composer($("#composer"), (text, attachments, mode) => void sendPrompt(text, attachments, mode), dialogs);
 	composer.setActions(tabActions);
 	composerRef = composer;
@@ -384,6 +384,11 @@ function init(): void {
 				sidebar.render();
 				// The file tree follows the active tab (and its cwd after /cd).
 				fileTree.sync();
+				// Drop overlays of closed tabs, show the active tab's dialog.
+				for (const tabId of dialogs.openTabIds()) {
+					if (!store.tabs.has(tabId)) dialogs.removeTab(tabId);
+				}
+				dialogs.setActiveTab(store.activeTabId);
 				break;
 			case "active":
 				tabsBar.render();
@@ -393,6 +398,7 @@ function init(): void {
 				sidebar.render();
 				fileTree.sync();
 				todoStrip.sync();
+				dialogs.setActiveTab(store.activeTabId);
 				if (store.activeTabId) composer.focus();
 				break;
 			case "chat": {
