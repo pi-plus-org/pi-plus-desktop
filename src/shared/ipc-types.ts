@@ -530,7 +530,7 @@ export interface CompactionSettingsDTO {
 	windowCapTokens: number | null;
 }
 
-/** One entry of the Settings → Editors picker (command "" = $VISUAL/$EDITOR). */
+/** One entry of the Settings → Editors picker (absolute command, no system default). */
 export interface EditorOptionDTO {
 	label: string;
 	command: string;
@@ -733,7 +733,7 @@ export interface PiApi {
 	cleanProfileDir(name: string): Promise<void>;
 	getSettings(): Promise<AppSettingsDTO>;
 	setTheme(theme: ThemeMode): Promise<void>;
-	/** External editor command line for the composer ("" = fall back to $VISUAL/$EDITOR). */
+	/** External editor command line for the composer ("" = none picked yet). */
 	setEditor(command: string): Promise<void>;
 	/** Installed blocking-GUI editors for the Settings picker. */
 	listEditors(): Promise<EditorOptionDTO[]>;

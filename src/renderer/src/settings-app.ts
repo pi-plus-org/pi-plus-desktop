@@ -368,35 +368,85 @@ function init(): void {
 	const editorsPane = el("div", "settings-pane");
 	editorsPane.append(el("div", "settings-section-title", "Editors"));
 	const editorSelect = el("select", "form-input editor-select") as HTMLSelectElement;
-	const editorCmd = el("code", "editor-cmd");
+	// The command is editable: the detected launcher can be wrong (portable
+	// installs, wrapper scripts), and a picker-only UI would leave no way to fix it.
+	const editorCmdInput = el("input", "form-input editor-cmd-input") as HTMLInputElement;
+	editorCmdInput.type = "text";
+	editorCmdInput.spellcheck = false;
+	editorCmdInput.placeholder = 'e.g. /usr/local/bin/code --wait  or  "C:\\Program Files\\Vim\\vim92\\gvim.exe" -f';
+	const editorReset = el("button", "dialog-btn editor-reset", "Reset") as HTMLButtonElement;
+	editorReset.title = "Restore the auto-detected command for this editor";
+	editorReset.disabled = true;
+	// Last probe's detected editors (Reset targets) and the saved command.
+	let installedEditors: { label: string; command: string }[] = [];
+	let editorSaved = "";
+	const persistEditor = (command: string): void => {
+		editorSaved = command;
+		void window.pi
+			.setEditor(command)
+			.then(syncEditor)
+			.catch((err) => console.warn("[settings] setEditor failed", err));
+	};
 	const syncEditor = async (): Promise<void> => {
 		const [installed, settings] = await Promise.all([window.pi.listEditors(), window.pi.getSettings()]);
-		const choices = [{ label: "System default ($VISUAL/$EDITOR)", command: "" }, ...installed];
-		// Keep a previously-saved (or since-uninstalled) command selectable.
-		if (settings.editor && !choices.some((c) => c.command === settings.editor))
-			choices.push({ label: `${settings.editor} (custom)`, command: settings.editor });
+		installedEditors = installed;
+		editorSaved = settings.editor;
+		// No system default: the editor must be picked here explicitly.
+		const choices: { label: string; command: string; base: string }[] = installed.map((c) => ({ ...c, base: c.label }));
+		// Keep a hand-edited (or since-uninstalled) command selectable. Its base
+		// label is whatever it was picked from, so Reset can still find it.
+		if (settings.editor && !choices.some((c) => c.command === settings.editor)) {
+			const prevBase = editorSelect.selectedOptions[0]?.dataset.base ?? "";
+			const base = installed.some((c) => c.label === prevBase) ? prevBase : "";
+			choices.push({ label: base ? `${base} (custom)` : `${settings.editor} (custom)`, command: settings.editor, base });
+		}
+		const placeholder = el("option", undefined, choices.length > 0 ? "Select an editor…" : "No editor found") as HTMLOptionElement;
+		placeholder.value = "";
+		placeholder.disabled = true;
 		editorSelect.replaceChildren(
+			placeholder,
 			...choices.map((c) => {
 				const opt = el("option", undefined, c.label) as HTMLOptionElement;
 				opt.value = c.command;
+				opt.dataset.base = c.base;
 				return opt;
 			}),
 		);
 		editorSelect.value = settings.editor;
-		editorCmd.textContent = settings.editor
-			? `${settings.editor} <tempfile>`
-			: "$VISUAL, then $EDITOR (system default — set one in your shell profile)";
+		editorCmdInput.value = settings.editor;
+		editorReset.disabled = !settings.editor;
 	};
-	editorSelect.addEventListener("change", () => {
-		void window.pi
-			.setEditor(editorSelect.value)
-			.then(syncEditor)
-			.catch((err) => console.warn("[settings] setEditor failed", err));
+	editorSelect.addEventListener("change", () => persistEditor(editorSelect.value));
+	// Don't let the click blur the input first: that would commit the typed text
+	// right before the reset, racing two saves.
+	editorReset.addEventListener("mousedown", (ev) => ev.preventDefault());
+	editorReset.addEventListener("click", () => {
+		// Detected command for the editor this command came from; clearing is the
+		// only meaningful reset for a command that was never auto-detected.
+		const base = editorSelect.selectedOptions[0]?.dataset.base ?? "";
+		persistEditor(installedEditors.find((c) => c.label === base)?.command ?? "");
+	});
+	// Commit on blur/Enter rather than per keystroke: a save rewrites the
+	// settings file and re-runs detection.
+	editorCmdInput.addEventListener("change", () => {
+		const next = editorCmdInput.value.trim();
+		if (next !== editorSaved) persistEditor(next);
+	});
+	editorCmdInput.addEventListener("keydown", (ev) => {
+		if (ev.key === "Enter") {
+			ev.preventDefault();
+			editorCmdInput.blur();
+		} else if (ev.key === "Escape") {
+			editorCmdInput.value = editorSaved;
+			editorCmdInput.blur();
+		}
 	});
 	const editorRow = el("div", "editors-row");
 	editorRow.append(el("span", "editors-label", "Chat draft editor"), editorSelect);
 	const editorCmdRow = el("div", "editors-cmd-row");
-	editorCmdRow.append(el("span", "editors-label", "Command"), editorCmd);
+	const editorCmdField = el("div", "editor-cmd-field");
+	editorCmdField.append(editorCmdInput, editorReset);
+	editorCmdRow.append(el("span", "editors-label", "Command"), editorCmdField);
 	editorsPane.append(
 		el("div", "settings-hint", "Used by the ✎ button at the right of the chat input: the draft opens in this editor and the edited text replaces it once the editor quits."),
 		editorRow,
@@ -404,7 +454,7 @@ function init(): void {
 		el(
 			"div",
 			"settings-caption",
-			"Only editors that block until the file is closed are offered (terminal editors cannot run here — no TTY). Installed apps are detected on PATH and in /usr/local/bin and /opt/homebrew/bin, so relaunching after installing an editor refreshes this list.",
+			"Only editors that block until the file is closed are offered (terminal editors cannot run here — no TTY). Installed apps are detected on PATH and in the usual install locations (macOS: /usr/local/bin, /opt/homebrew/bin; Windows: the VS Code, VSCodium, Cursor, Sublime, Zed and Vim install dirs). The app runs `<command> <tempfile>` and waits for exit, so keep the blocking flag (--wait, or -f for GVim). Edit the command for anything the probe cannot find; Reset restores the detected one.",
 		),
 	);
 	void syncEditor().catch((err) => console.warn("[settings] editors list failed", err));

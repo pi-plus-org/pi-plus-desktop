@@ -1955,15 +1955,28 @@ iframe.diagram-embed-html {
 	width: 100%;
 }
 
-.editor-cmd {
+.editor-cmd-field {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+
+/* Monospace so paths and flags line up; shrinks instead of pushing Reset out. */
+.editor-cmd-input {
+	flex: 1;
+	min-width: 0;
 	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 	font-size: 12px;
-	color: var(--text);
-	background: var(--bg-input);
-	border: 1px solid var(--border);
-	border-radius: 6px;
-	padding: 4px 8px;
-	overflow-wrap: break-word;
+}
+
+.editor-cmd-input::placeholder {
+	font-size: 11px;
+}
+
+.editor-reset {
+	flex: none;
+	padding: 6px 12px;
 }
 
 .settings-caption {

@@ -106,7 +106,7 @@ interface LegacySettingsFile {
 
 export class AppSettings {
 	private _theme: ThemeMode = "system";
-	/** Editor command line for the composer's external-edit button ("" = $VISUAL/$EDITOR). */
+	/** Editor command line for the composer's external-edit button ("" = none picked yet). */
 	private _editor = "";
 	/** History panel width, drag-resized in the renderer (CSS clamps applied there). */
 	private _sidebarWidth = 260;
@@ -268,8 +268,8 @@ export class AppSettings {
 		this._zoomFactor = asZoomFactor(block.zoomFactor) ?? this._zoomFactor;
 		this._defaultPermissionMode = asPermissionMode(block.defaultPermissionMode) ?? this._defaultPermissionMode;
 		this._packageTools = asPackageTools(block.packageTools) ?? this._packageTools;
-		// Raw persisted value (no $VISUAL/$EDITOR fallback) — resolveEditorCommand
-		// in editor.ts applies the fallback at spawn time, as before.
+		// Raw persisted value — no $VISUAL/$EDITOR fallback: the picker is the
+		// only source, and openInEditor errors out when nothing is selected.
 		this._editor = this.editors().getExternalEditorSetting() ?? "";
 		this.migrateLegacyFile();
 	}
