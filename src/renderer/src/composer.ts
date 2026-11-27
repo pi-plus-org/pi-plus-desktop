@@ -1358,24 +1358,28 @@ export class Composer {
 		// "!" bash mode (TUI parity): run the draft as a shell command through the
 		// SDK executor — bash on macOS/Linux, cmd.exe on Windows — instead of a
 		// model prompt. "!!" also runs it but keeps it out of the model context.
-		if (/^!!?(?=\S)/.test(text)) {
+		// TUI accepts whitespace after the bang (interactive-mode.ts trims the
+		// rest of the line), so "! ls" must intercept here too; a bare "!"/"!!"
+		// has no command and falls through as a normal prompt.
+		if (/^!!?(?=\s*\S)/.test(text)) {
 			const excludeFromContext = text.startsWith("!!");
 			const command = text.slice(excludeFromContext ? 2 : 1).trim();
-			if (!command) return;
-			if (this.attachments.length > 0 || this.folderPaths.size > 0) {
-				this.dialogs.notify("Remove the attachments first to run a shell command (!)", "error");
+			if (command) {
+				if (this.attachments.length > 0 || this.folderPaths.size > 0) {
+					this.dialogs.notify("Remove the attachments first to run a shell command (!)", "error");
+					return;
+				}
+				if (store.hasRunningBash(store.activeTabId)) {
+					this.dialogs.notify("A command is already running — Esc cancels it", "error");
+					return;
+				}
+				this.textarea.value = "";
+				this.endHistoryWalk();
+				this.closeAtMenu();
+				this.closeSlashMenu();
+				void this.runBash(store.activeTabId, command, excludeFromContext);
 				return;
 			}
-			if (store.hasRunningBash(store.activeTabId)) {
-				this.dialogs.notify("A command is already running — Esc cancels it", "error");
-				return;
-			}
-			this.textarea.value = "";
-			this.endHistoryWalk();
-			this.closeAtMenu();
-			this.closeSlashMenu();
-			void this.runBash(store.activeTabId, command, excludeFromContext);
-			return;
 		}
 		const attachments = this.attachments;
 		const mode = store.active?.streaming ? this.sendMode : undefined;
@@ -1516,6 +1520,13 @@ export class Composer {
 		}
 		this.renderQueueStatus(active);
 		this.renderUsage(active);
+	}
+
+	/** True while the chat box owns the keyboard — the external-editor chord
+	 *  (⌘⌥E) is gated on this so it can't fire from the search bar, file tree,
+	 *  etc. */
+	isFocused(): boolean {
+		return document.activeElement === this.textarea;
 	}
 
 	/** Jump the caret into the chat box (View > Focus Chat Box, ⌥⌘C). No-op when

@@ -480,7 +480,9 @@ function init(): void {
 				fileTreeRef?.toggle();
 				break;
 			case "edit-externally":
-				void composerRef?.editExternally();
+				// ⌘⌥E only acts while the chat box is focused — pressed anywhere
+				// else (search bar, file tree, history panel) it is a no-op.
+				if (composerRef?.isFocused()) void composerRef.editExternally();
 				break;
 			case "reload-history":
 				void sidebarRef?.refresh();

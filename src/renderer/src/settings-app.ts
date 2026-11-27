@@ -364,7 +364,8 @@ function init(): void {
 	// ---- Editors pane ----
 	// The composer ✎ button (main/editor.ts) spawns `<command> <tempfile>`,
 	// waits for exit, and feeds the file content back into the draft. The
-	// picker lists installed blocking-GUI editors (probed main-side).
+	// picker lists blocking-GUI editors (probed main-side; VS Code and
+	// GVim/MacVim are always listed, marked "(not installed)" when undetected).
 	const editorsPane = el("div", "settings-pane");
 	editorsPane.append(el("div", "settings-section-title", "Editors"));
 	const editorSelect = el("select", "form-input editor-select") as HTMLSelectElement;

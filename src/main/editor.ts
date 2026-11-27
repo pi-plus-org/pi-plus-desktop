@@ -124,12 +124,21 @@ function quoteCommandPath(path: string): string {
 	return /\s/.test(path) ? `"${path}"` : path;
 }
 
-/** Installed blocking-GUI editors for the Settings picker. Commands carry
- *  absolute paths so spawning works no matter how the app was launched. */
+/** Editors that always show in the Settings picker even when not detected —
+ *  an undetected entry keeps the bare program name (resolved again at spawn
+ *  time, so a later install or a hand-fixed command just works). */
+const ALWAYS_LISTED = new Set(["code", "gvim"]);
+
+/** Blocking-GUI editors for the Settings picker. Detected commands carry
+ *  absolute paths so spawning works no matter how the app was launched;
+ *  ALWAYS_LISTED entries appear with the bare program name (+ "(not
+ *  installed)" label) when probing finds nothing. */
 export function listAvailableEditors(): { label: string; command: string }[] {
 	return KNOWN_EDITORS.flatMap((e) => {
 		const resolved = resolveProgram(e.program);
-		return resolved ? [{ label: e.label, command: [quoteCommandPath(resolved), ...e.flags].join(" ") }] : [];
+		if (resolved) return [{ label: e.label, command: [quoteCommandPath(resolved), ...e.flags].join(" ") }];
+		if (!ALWAYS_LISTED.has(e.program)) return [];
+		return [{ label: `${e.label} (not installed)`, command: [e.program, ...e.flags].join(" ") }];
 	});
 }
 
